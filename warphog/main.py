@@ -31,6 +31,24 @@ class WarpHog(ABC):
         self.num_pairs = self._get_num_pairs()
         self.idx_map, self.idy_map = self._get_thread_map()
 
+        self.block_dim_x = 4
+        self.block_dim_y = 4
+        self.block_dim_z = 1
+
+        self.pairs_per_thread = 1 #TODO busted
+
+    @property
+    def block_dim(self):
+        return (self.block_dim_x, self.block_dim_y, self.block_dim_z)
+
+    @property
+    def grid_dim(self):
+        return self._get_grid_dim()
+
+    @abstractmethod
+    def _get_grid_dim(self):
+        raise NotImplementedError()
+
     @abstractmethod
     def _get_thread_map(self):
         raise NotImplementedError()
@@ -67,6 +85,10 @@ class TriangularWarpHog(WarpHog):
     def _get_num_pairs(self):
         return ceil(( self.num_seqs * (self.num_seqs + 1) ) / 2)
 
+    def _get_grid_dim(self):
+        grid_width = sqrt(self.get_num_pairs())
+        return ( ceil(grid_width / (self.pairs_per_thread * self.block_dim_x)), ceil(grid_width / (self.block_dim_y)) )
+
 def init_concrete(alphabet, encoder, loader, loader_limit, fasta):
     if alphabet:
         raise NotImplementedError()
@@ -102,18 +124,8 @@ def warphog(args):
     idx_map_gpu = gpuarray.to_gpu(idx_map)
     idy_map_gpu = gpuarray.to_gpu(idy_map)
 
-    # Init GPU grid
-    THREADS_PER_BLOCK_X = 4
-    THREADS_PER_BLOCK_Y = 4
-    PAIRS_PER_THREAD = 1 # TODO busted lel
-
-    block=(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y, 1)
-    grid_width = sqrt(hog.get_num_pairs())
-    print( (grid_width / (PAIRS_PER_THREAD * THREADS_PER_BLOCK_X)) * (grid_width / (THREADS_PER_BLOCK_Y)) * THREADS_PER_BLOCK_X * THREADS_PER_BLOCK_Y)
-    grid=( ceil(grid_width / (PAIRS_PER_THREAD * THREADS_PER_BLOCK_X)), ceil(grid_width / (THREADS_PER_BLOCK_Y)) )
-    print(block)
-    print(grid)
-
+    block = hog.block_dim
+    grid = hog.grid_dim
     print("THREAD COUNT %d" % (block[0]*block[1]*grid[0]*grid[1]))
     print("MAPS LEN", len(idx_map), len(idy_map))
 
@@ -129,12 +141,12 @@ def warphog(args):
         np.int32(num_seqs),
         np.int32(fa_loader.get_length()), # msa stride
         d_gpu,
-        np.int32(PAIRS_PER_THREAD),
+        np.int32(hog.pairs_per_thread),
         np.uint32(hog.get_num_pairs()),
         idx_map_gpu,
         idy_map_gpu,
-        block=block,
-        grid=grid,
+        block=hog.block_dim,
+        grid=hog.grid_dim,
     )
     print("fetching huge boi from gpu")
     #cuda.memcpy_dtoh(d, d_gpu)
