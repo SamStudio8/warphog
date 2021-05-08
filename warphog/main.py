@@ -10,15 +10,16 @@ import numpy as np
 
 from warphog.loaders import LOADERS
 from warphog.encoders import ENCODERS
-from warphog.cuda.hamming import prep_cu
+from warphog.cuda.kernels import KERNELS
 from warphog.util import alphabet, alphabet_lookup
 
 def cli():
     parser = argparse.ArgumentParser()
     parser.add_argument("--fasta", required=True)
     parser.add_argument("--loader", choices=LOADERS.keys(), required=True)
-    parser.add_argument("--encoder", choices=ENCODERS.keys(), required=True)
     parser.add_argument("--loader-limit", type=int)
+    parser.add_argument("--encoder", choices=ENCODERS.keys(), required=True)
+    parser.add_argument("--kernel", choices=KERNELS.keys(), required=True)
     args = parser.parse_args()
     warphog(args)
 
@@ -66,8 +67,11 @@ def warphog(args):
 
     start = datetime.datetime.now()
 
-    hamming_distance = prep_cu(alphabet, alphabet_lookup)
-    hamming_distance(
+    kernel = KERNELS[args.kernel]()
+    kernel.prepare_kernel(alphabet=alphabet, alphabet_lookup=alphabet_lookup)
+    kernel = kernel.get_compiled_kernel()
+
+    kernel(
         msa_gpu,
         np.int32(num_seqs),
         np.int32(l), # msa stride

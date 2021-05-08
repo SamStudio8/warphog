@@ -9,19 +9,13 @@ __global__ void hamming_distance(char* msa, int num_msa, int l, unsigned short* 
     int count = 0;
     while(count < p){
 
-        //int idx = threadId / num_msa;
-        //int idy = threadId % num_msa;
-        //idx >= idy
         int idx = idx_map[threadId];
         int idy = idy_map[threadId];
 
-        //if(idx < num_msa && idy < num_msa && threadId < n){
         if(threadId < n){
             //printf("HELLO I AM THE GPU: thread %d, idx %d, idy %d\\n", threadId, idx, idy);
 
-            //unsigned int idd = idx * num_msa + idy;
             unsigned int idd = threadId;
-
 
             int base_a = 0;
             int base_b = 0;
