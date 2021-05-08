@@ -54,7 +54,8 @@ def warphog(args):
 
     block=(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y, 1)
     #grid=( ceil(num_seqs / (PAIRS_PER_THREAD * THREADS_PER_BLOCK)), ceil(num_seqs / (THREADS_PER_BLOCK)) )
-    grid_width = (sqrt(( num_seqs * (num_seqs + 1) ) / 2))
+    triangle_size = ( num_seqs * (num_seqs + 1) ) / 2
+    grid_width = sqrt(triangle_size)
     print( (grid_width / (PAIRS_PER_THREAD * THREADS_PER_BLOCK_X)) * (grid_width / (THREADS_PER_BLOCK_Y)) * THREADS_PER_BLOCK_X * THREADS_PER_BLOCK_Y)
     grid=( ceil(grid_width / (PAIRS_PER_THREAD * THREADS_PER_BLOCK_X)), ceil(grid_width / (THREADS_PER_BLOCK_Y)) )
     print(block)
@@ -100,9 +101,13 @@ def warphog(args):
     print(dd)
     s = (d > 0).sum()
 
-    print("%d non-zero edit distances found" % s)
-    print("%.2fM sequence comparions / s" % ((s / delta.total_seconds())/1e6))
-    print("%.2fB base comparions / s" % ( (fa_loader.get_length() * (s / delta.total_seconds()))/1e9))
+    print("%d non-zero edit distances found (%.2f%%)" % (s, s/triangle_size*100.0))
+
+
+    print("%.2fM sequence comparions / s" % ( (triangle_size / delta.total_seconds())/ 1e6) )
+
+    total_bases = fa_loader.get_length() * triangle_size
+    print("%.2fB base comparions / s" % ( (total_bases / delta.total_seconds()) / 1e9 ))
 
 
 
