@@ -1,6 +1,7 @@
 import argparse
 import datetime
 import sys
+from abc import ABC, abstractmethod
 from math import ceil, sqrt
 
 import pycuda.driver as cuda
@@ -24,19 +25,47 @@ def cli():
     warphog(args)
 
 
-class WarpHog(object):
+class WarpHog(ABC):
     def __init__(self, n):
         self.num_seqs = n
-        self.triangle_size = ceil(( n * (n + 1) ) / 2)
-        self.idx_map, self.idy_map = np.asarray(np.triu_indices(n), dtype=np.uint16)
+        self.num_pairs = self._get_num_pairs()
+        self.idx_map, self.idy_map = self._get_thread_map()
+
+    @abstractmethod
+    def _get_thread_map(self):
+        raise NotImplementedError()
+
+    def get_thread_map(self):
+        if self.idx_map is None or self.idy_map is None:
+            self.idx_map, self.idy_map = self._get_thread_map()
+        else:
+            return self.idx_map, self.idy_map
+
+    @abstractmethod
+    def _get_num_pairs(self):
+        raise NotImplementedError()
+
+    def get_num_pairs(self):
+        if not self.num_pairs:
+            self.num_pairs = self._get_num_pairs()
+        else:
+            return self.num_pairs
 
     def output_tsv(self, d):
-        for i in range(self.triangle_size):
+        for i in range(self.num_pairs):
             sys.stdout.write('\t'.join([str(x) for x in [
                 self.idx_map[i],
                 self.idy_map[i],
                 d[i],
             ]]) + '\n')
+
+class TriangularWarpHog(WarpHog):
+
+    def _get_thread_map(self):
+        return np.asarray(np.triu_indices(self.num_seqs), dtype=np.uint16)
+
+    def _get_num_pairs(self):
+        return ceil(( self.num_seqs * (self.num_seqs + 1) ) / 2)
 
 def init_concrete(alphabet, encoder, loader, loader_limit, fasta):
     if alphabet:
@@ -52,27 +81,26 @@ def warphog(args):
 
     # Load a block of sequences from FASTA
     seq_block = fa_loader.get_block()
-    l = fa_loader.get_length()
     num_seqs = fa_loader.get_count()
-    print("huge block loaded: (%d, %d)" % (num_seqs, l))
+    print("huge block loaded: (%d, %d)" % (num_seqs, fa_loader.get_length()))
 
-    hog = WarpHog(n=num_seqs)
+    hog = TriangularWarpHog(n=num_seqs)
 
     # Send data block to GPU
     msa_char_block = np.frombuffer("".join(seq_block).encode(), dtype=np.byte)
     msa_gpu = gpuarray.to_gpu(msa_char_block)
 
     # Init return array and send to GPU
-    triangle_size = ceil(( num_seqs * (num_seqs + 1) ) / 2)
-    d = np.zeros(triangle_size, dtype=np.uint16)
+    d = np.zeros(hog.get_num_pairs(), dtype=np.uint16)
     #d_gpu = cuda.mem_alloc(d.nbytes)
     #cuda.memcpy_htod(d_gpu, d)
     d_gpu = gpuarray.to_gpu(d)
     print("huge boi on gpu")
 
     # Generate triangle map and send to GPU
-    idx_map_gpu = gpuarray.to_gpu(hog.idx_map)
-    idy_map_gpu = gpuarray.to_gpu(hog.idy_map)
+    idx_map, idy_map = hog.get_thread_map()
+    idx_map_gpu = gpuarray.to_gpu(idx_map)
+    idy_map_gpu = gpuarray.to_gpu(idy_map)
 
     # Init GPU grid
     THREADS_PER_BLOCK_X = 4
@@ -80,14 +108,14 @@ def warphog(args):
     PAIRS_PER_THREAD = 1 # TODO busted lel
 
     block=(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y, 1)
-    grid_width = sqrt(triangle_size)
+    grid_width = sqrt(hog.get_num_pairs())
     print( (grid_width / (PAIRS_PER_THREAD * THREADS_PER_BLOCK_X)) * (grid_width / (THREADS_PER_BLOCK_Y)) * THREADS_PER_BLOCK_X * THREADS_PER_BLOCK_Y)
     grid=( ceil(grid_width / (PAIRS_PER_THREAD * THREADS_PER_BLOCK_X)), ceil(grid_width / (THREADS_PER_BLOCK_Y)) )
     print(block)
     print(grid)
 
     print("THREAD COUNT %d" % (block[0]*block[1]*grid[0]*grid[1]))
-    print("MAPS LEN", len(hog.idx_map), len(hog.idy_map))
+    print("MAPS LEN", len(idx_map), len(idy_map))
 
     # Hog the warps
     start = datetime.datetime.now()
@@ -99,10 +127,10 @@ def warphog(args):
     kernel(
         msa_gpu,
         np.int32(num_seqs),
-        np.int32(l), # msa stride
-        d_gpu.gpudata,
+        np.int32(fa_loader.get_length()), # msa stride
+        d_gpu,
         np.int32(PAIRS_PER_THREAD),
-        np.uint32(hog.triangle_size),
+        np.uint32(hog.get_num_pairs()),
         idx_map_gpu,
         idy_map_gpu,
         block=block,
@@ -118,13 +146,14 @@ def warphog(args):
 
     print(d)
     dd = np.zeros((num_seqs, num_seqs), dtype=np.uint16)
-    dd[hog.idx_map, hog.idy_map] = d
+    dd[idx_map, idy_map] = d
     print(dd)
     s = (d > 0).sum()
 
-    print("%d non-zero edit distances found (%.2f%%)" % (s, s/triangle_size*100.0))
-    print("%.2fM sequence comparions / s" % ( (triangle_size / delta.total_seconds())/ 1e6) )
-    total_bases = fa_loader.get_length() * triangle_size
+    num_pairs = hog.get_num_pairs()
+    print("%d non-zero edit distances found (%.2f%%)" % (s, s/num_pairs*100.0))
+    print("%.2fM sequence comparions / s" % ( (num_pairs / delta.total_seconds())/ 1e6) )
+    total_bases = fa_loader.get_length() * num_pairs
     print("%.2fB base comparions / s" % ( (total_bases / delta.total_seconds()) / 1e9 ))
 
     hog.output_tsv(d)
