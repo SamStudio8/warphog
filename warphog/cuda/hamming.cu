@@ -1,4 +1,4 @@
-__global__ void hamming_distance(char* msa, int num_msa, int l, unsigned short* d, int p, int n, unsigned short* idx_map, unsigned short* idy_map) {
+__global__ void hamming_distance(char* msa, int num_msa, int l, unsigned short* d, int p, unsigned int n, unsigned short* idx_map, unsigned short* idy_map) {
 
     int blockId = blockIdx.x + blockIdx.y * gridDim.x;
     unsigned int threadId = blockId * (blockDim.x * blockDim.y) + (threadIdx.y * blockDim.x) + threadIdx.x;
