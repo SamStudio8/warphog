@@ -45,6 +45,12 @@ class WarpHog(ABC):
     def grid_dim(self):
         return self._get_grid_dim()
 
+    @property
+    def thread_count(self):
+        block_dim = self.block_dim
+        grid_dim = self.grid_dim
+        return block_dim[0] * block_dim[1] * block_dim[2] * grid_dim[0] * grid_dim[1]
+
     @abstractmethod
     def _get_grid_dim(self):
         raise NotImplementedError()
@@ -124,9 +130,7 @@ def warphog(args):
     idx_map_gpu = gpuarray.to_gpu(idx_map)
     idy_map_gpu = gpuarray.to_gpu(idy_map)
 
-    block = hog.block_dim
-    grid = hog.grid_dim
-    print("THREAD COUNT %d" % (block[0]*block[1]*grid[0]*grid[1]))
+    print("THREAD COUNT %d" % hog.thread_count)
     print("MAPS LEN", len(idx_map), len(idy_map))
 
     # Hog the warps
