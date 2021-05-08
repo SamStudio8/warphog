@@ -1,14 +1,13 @@
 import argparse
 import datetime
 import sys
-from abc import ABC, abstractmethod
-from math import ceil, sqrt
 
 import pycuda.driver as cuda
 import pycuda.autoinit
 from pycuda import gpuarray
 import numpy as np
 
+from warphog.hogs import HOGS
 from warphog.loaders import LOADERS
 from warphog.encoders import ENCODERS
 from warphog.cuda.kernels import KERNELS
@@ -18,89 +17,20 @@ def cli():
     parser = argparse.ArgumentParser()
     parser.add_argument("--fasta", required=True)
     parser.add_argument("--loader", choices=LOADERS.keys(), required=True)
-    parser.add_argument("--loader-limit", type=int)
+    parser.add_argument("--loader-limit", type=int, default=-1)
     parser.add_argument("--encoder", choices=ENCODERS.keys(), required=True)
     parser.add_argument("--kernel", choices=KERNELS.keys(), required=True)
+    parser.add_argument("--hog", choices=HOGS.keys(), required=True)
     args = parser.parse_args()
     warphog(args)
 
-
-class WarpHog(ABC):
-    def __init__(self, n):
-        self.num_seqs = n
-        self.num_pairs = self._get_num_pairs()
-        self.idx_map, self.idy_map = self._get_thread_map()
-
-        self.block_dim_x = 4
-        self.block_dim_y = 4
-        self.block_dim_z = 1
-
-        self.pairs_per_thread = 1 #TODO busted
-
-    @property
-    def block_dim(self):
-        return (self.block_dim_x, self.block_dim_y, self.block_dim_z)
-
-    @property
-    def grid_dim(self):
-        return self._get_grid_dim()
-
-    @property
-    def thread_count(self):
-        block_dim = self.block_dim
-        grid_dim = self.grid_dim
-        return block_dim[0] * block_dim[1] * block_dim[2] * grid_dim[0] * grid_dim[1]
-
-    @abstractmethod
-    def _get_grid_dim(self):
-        raise NotImplementedError()
-
-    @abstractmethod
-    def _get_thread_map(self):
-        raise NotImplementedError()
-
-    def get_thread_map(self):
-        if self.idx_map is None or self.idy_map is None:
-            self.idx_map, self.idy_map = self._get_thread_map()
-        else:
-            return self.idx_map, self.idy_map
-
-    @abstractmethod
-    def _get_num_pairs(self):
-        raise NotImplementedError()
-
-    def get_num_pairs(self):
-        if not self.num_pairs:
-            self.num_pairs = self._get_num_pairs()
-        else:
-            return self.num_pairs
-
-    def output_tsv(self, d):
-        for i in range(self.num_pairs):
-            sys.stdout.write('\t'.join([str(x) for x in [
-                self.idx_map[i],
-                self.idy_map[i],
-                d[i],
-            ]]) + '\n')
-
-class TriangularWarpHog(WarpHog):
-
-    def _get_thread_map(self):
-        return np.asarray(np.triu_indices(self.num_seqs), dtype=np.uint16)
-
-    def _get_num_pairs(self):
-        return ceil(( self.num_seqs * (self.num_seqs + 1) ) / 2)
-
-    def _get_grid_dim(self):
-        grid_width = sqrt(self.get_num_pairs())
-        return ( ceil(grid_width / (self.pairs_per_thread * self.block_dim_x)), ceil(grid_width / (self.block_dim_y)) )
 
 def init_concrete(alphabet, encoder, loader, loader_limit, fasta):
     if alphabet:
         raise NotImplementedError()
     alphabet = DEFAULT_ALPHABET
     base_converter = ENCODERS[encoder](alphabet=alphabet)
-    fa_loader = LOADERS[loader](n=loader_limit, fasta=fasta, bc=base_converter)
+    fa_loader = LOADERS[loader](limit=loader_limit, fasta=fasta, bc=base_converter)
     return alphabet, fa_loader
 
 def warphog(args):
@@ -112,7 +42,8 @@ def warphog(args):
     num_seqs = fa_loader.get_count()
     print("huge block loaded: (%d, %d)" % (num_seqs, fa_loader.get_length()))
 
-    hog = TriangularWarpHog(n=num_seqs)
+    # TODO How to set m here
+    hog = HOGS[args.hog](n=num_seqs)
 
     # Send data block to GPU
     msa_char_block = np.frombuffer("".join(seq_block).encode(), dtype=np.byte)
@@ -142,11 +73,11 @@ def warphog(args):
 
     kernel(
         msa_gpu,
-        np.int32(num_seqs),
-        np.int32(fa_loader.get_length()), # msa stride
+        np.uint(num_seqs),
+        np.uint32(fa_loader.get_length()), # msa stride
         d_gpu,
         np.int32(hog.pairs_per_thread),
-        np.uint32(hog.get_num_pairs()),
+        np.uint(hog.get_num_pairs()),
         idx_map_gpu,
         idy_map_gpu,
         block=hog.block_dim,
@@ -160,11 +91,11 @@ def warphog(args):
     delta = end-start
     print(delta)
 
-    print(d)
-    dd = np.zeros((num_seqs, num_seqs), dtype=np.uint16)
-    dd[idx_map, idy_map] = d
+    dd = np.zeros((hog.seq_dim_x, hog.seq_dim_y), dtype=np.uint16)
+    hog.broadcast_result(d, dd)
     print(dd)
     s = (d > 0).sum()
+
 
     num_pairs = hog.get_num_pairs()
     print("%d non-zero edit distances found (%.2f%%)" % (s, s/num_pairs*100.0))

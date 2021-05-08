@@ -2,10 +2,10 @@ from abc import ABC, abstractmethod
 
 class FastaLoader(ABC):
 
-    def __init__(self, fasta=None, n=-1, bc=None):
+    def __init__(self, fasta=None, limit=-1, bc=None):
         self.count = 0
         self.fasta = fasta
-        self.n = n
+        self.limit = limit
         self.base_converter = bc
         if not bc:
             raise Exception("You must specify a base converter to the FastaLoader")
@@ -85,7 +85,6 @@ class HengFastaLoader(FastaLoader):
     def get_block(self):
         #msa_char_block = np.zeros( (1, self.get_length()) , dtype=np.int32)
         seq_block = []
-        NUM_LOAD=self.n
         curr_seq_num_i = 0
         for name_i, seq_i, qual_i in self.readfq(open(self.fasta)):
             if curr_seq_num_i % 10000 == 0:
@@ -97,7 +96,7 @@ class HengFastaLoader(FastaLoader):
             self.count += 1
 
             #seq_block.append(seq_i)
-            if curr_seq_num_i >= NUM_LOAD and NUM_LOAD > 0:
+            if curr_seq_num_i >= self.limit and self.limit > 0:
                 break
         #return msa_char_block
         return seq_block
