@@ -77,7 +77,7 @@ class WarpHog(ABC):
             ]]) + '\n')
 
 
-class AsymmetricalRectangleWarpHog(WarpHog):
+class RectangularWarpHog(WarpHog):
 
     def __init__(self, n, m=1):
         super().__init__(n=n, m=m)
@@ -109,5 +109,5 @@ class TriangularWarpHog(WarpHog):
 
 HOGS = {
     "all": TriangularWarpHog,
-    "some": AsymmetricalRectangleWarpHog,
+    "some": RectangularWarpHog,
 }
