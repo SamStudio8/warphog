@@ -11,7 +11,7 @@ import numpy as np
 from warphog.loaders import LOADERS
 from warphog.encoders import ENCODERS
 from warphog.cuda.kernels import KERNELS
-from warphog.util import alphabet, alphabet_lookup
+from warphog.util import DEFAULT_ALPHABET
 
 def cli():
     parser = argparse.ArgumentParser()
@@ -25,8 +25,11 @@ def cli():
 
 
 def warphog(args):
+
+    alphabet = DEFAULT_ALPHABET
+
     # Read sequences into block
-    base_converter = ENCODERS[args.encoder](alphabet=alphabet, lookup=alphabet_lookup)
+    base_converter = ENCODERS[args.encoder](alphabet=alphabet)
 
     fa_loader = LOADERS[args.loader](n=args.loader_limit, fasta=args.fasta, bc=base_converter)
     seq_block = fa_loader.get_block()
@@ -68,7 +71,7 @@ def warphog(args):
     start = datetime.datetime.now()
 
     kernel = KERNELS[args.kernel]()
-    kernel.prepare_kernel(alphabet=alphabet, alphabet_lookup=alphabet_lookup)
+    kernel.prepare_kernel(alphabet=alphabet)
     kernel = kernel.get_compiled_kernel()
 
     kernel(

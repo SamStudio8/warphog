@@ -2,9 +2,8 @@ from abc import ABC, abstractmethod
 
 class BaseConverter(ABC):
 
-    def __init__(self, alphabet, lookup):
+    def __init__(self, alphabet):
         self.alphabet = alphabet
-        self.alphabet_lookup = lookup
 
     @abstractmethod
     def convert_base(self, b):
@@ -24,21 +23,21 @@ class NoBaseConverter(BaseConverter):
 
 class ListBaseConverter(BaseConverter):
     def convert_base(self, b):
-        return self.alphabet_lookup[b]
+        return self.alphabet.lookup(b)
     def convert_seq(self, seq):
         a = []
         for base in seq:
-            a.append( self.alphabet_lookup[base] )
+            a.append( self.alphabet.lookup(base) )
         return a
 
 class OrdBaseConverter(BaseConverter):
     def convert_base(self, b):
-        return alphabet_ord_lookup_l[ord(b)]
+        return self.alphabet.lookup_ord(b)
 
     def convert_seq(self, seq):
         a = []
         for base in seq:
-            a.append(alphabet_ord_lookup_l[ord(base)])
+            a.append(self.alphabet.lookup_ord(b))
         return a
 
 class TomsLuckyBaseConverter(BaseConverter):
