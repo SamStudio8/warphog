@@ -37,7 +37,7 @@ class OrdBaseConverter(BaseConverter):
     def convert_seq(self, seq):
         a = []
         for base in seq:
-            a.append(self.alphabet.lookup_ord(b))
+            a.append(self.alphabet.lookup_ord(base))
         return a
 
 class TomsLuckyBaseConverter(BaseConverter):

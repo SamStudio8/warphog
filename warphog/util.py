@@ -48,11 +48,13 @@ default_pairs = [
 
 class Alphabet(object):
     def __init__(self, equivalent_tuples):
+        self.equivalent_tuples = equivalent_tuples
         self.alphabet_set = self._alphabet_set_from_pairs(equivalent_tuples)
         self.alphabet = sorted(list(self.alphabet_set))
         self.alphabet_lookup = { base:i for i, base in enumerate(self.alphabet) }
         self.alphabet_matrix = self._alphabet_matrix_from_pairs(equivalent_tuples, self.alphabet_lookup)
         self.alphabet_len = len(self.alphabet)
+        self.equivalent_d = self._alphabet_d_from_pairs(equivalent_tuples)
 
         self.alphabet_ord_list = self._alphabet_ord_list_from_alphabet(self.alphabet)
 
@@ -69,6 +71,22 @@ class Alphabet(object):
             alphabet.add(pair[1])
         return alphabet
 
+    def _alphabet_d_from_pairs(self, pairs):
+        d = {}
+        for pair in pairs:
+            a = pair[0]
+            b = pair[1]
+
+            if a not in d:
+                d[a] = set([])
+            if b not in d:
+                d[b] = set([])
+
+            d[a].add(b)
+            d[b].add(a)
+            d[a].add(a)
+            d[b].add(b)
+        return d
 
     def _alphabet_matrix_from_pairs(self, pairs, lookup):
         alphabet_len = len(lookup)

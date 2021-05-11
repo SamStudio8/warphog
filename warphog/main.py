@@ -21,6 +21,8 @@ def cli():
     parser.add_argument("--encoder", choices=ENCODERS.keys(), required=True)
     parser.add_argument("--kernel", choices=KERNELS.keys(), required=True)
     parser.add_argument("--hog", choices=HOGS.keys(), required=True)
+    parser.add_argument("-k", type=int, default=-1)
+    parser.add_argument("-o")
     args = parser.parse_args()
     warphog(args)
 
@@ -103,4 +105,10 @@ def warphog(args):
     total_bases = fa_loader.get_length() * num_pairs
     print("%.2fB base comparions / s" % ( (total_bases / delta.total_seconds()) / 1e9 ))
 
-    hog.output_tsv(d)
+    if args.o:
+        start = datetime.datetime.now()
+        b_written = hog.output_tsv(d, args.o, k=args.k, names=fa_loader.names_to_idx)
+        mb_written = b_written / 1e6
+        end = datetime.datetime.now()
+        delta = end-start
+        print("%.2f GB written in %s (%.2f MB/s)" % (mb_written / 1000, str(delta), mb_written / delta.total_seconds()))

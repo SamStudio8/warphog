@@ -7,6 +7,9 @@ class FastaLoader(ABC):
         self.fasta = fasta
         self.limit = limit
         self.base_converter = bc
+
+        self.names_to_idx = {}
+
         if not bc:
             raise Exception("You must specify a base converter to the FastaLoader")
 
@@ -85,18 +88,17 @@ class HengFastaLoader(FastaLoader):
     def get_block(self):
         #msa_char_block = np.zeros( (1, self.get_length()) , dtype=np.int32)
         seq_block = []
-        curr_seq_num_i = 0
         for name_i, seq_i, qual_i in self.readfq(open(self.fasta)):
-            if curr_seq_num_i % 10000 == 0:
-                print(curr_seq_num_i)
-            curr_seq_num_i += 1
+            if self.count % 10000 == 0:
+                print(self.count)
             #np.append(msa_char_block, (base_converter.convert_base(base) for base in seq_i))
             #seq_block.append( (base_converter.convert_base(base) for base in seq_i) )
             seq_block.append( self.base_converter.convert_seq(seq_i) )
+            self.names_to_idx[self.count] = name_i
             self.count += 1
 
             #seq_block.append(seq_i)
-            if curr_seq_num_i >= self.limit and self.limit > 0:
+            if self.count >= self.limit and self.limit > 0:
                 break
         #return msa_char_block
         return seq_block

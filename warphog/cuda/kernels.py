@@ -31,7 +31,6 @@ class KernelPrepper(ABC):
             f = self.f
         return cpp('\n'.join(self.get_kernel_lines())).get_function(self.f)
 
-
 class SamHammingKernelPrepper(KernelPrepper):
     # Luckily for me, we can use Hamming distance over Levenshtein distance as
     # we have an MSA already. All strings are the same size. Our MSA drops insertions

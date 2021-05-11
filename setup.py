@@ -10,6 +10,7 @@ requirements = [
 ]
 
 test_requirements = [
+    "pytest",
 ]
 
 setuptools.setup(
