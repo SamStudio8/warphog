@@ -37,8 +37,6 @@ class SamHammingKernelPrepper(KernelPrepper):
     # and deletions are marked as a symbol.
     # Presumably we could do something clever and turn the string into integers to do
     # some magic bit shifting. Regardless, CUDA will be faster than dumping it on CPU.
-    # TODO Remove assumption on NxN and use NxM
-    # TODO fucking tests ffs
     # TODO Guard python from sending arrays with elements larger than unsigned short
 
     def __init__(self):

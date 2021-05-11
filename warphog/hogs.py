@@ -80,11 +80,13 @@ class WarpHog(ABC):
 
         with open(o, 'w', buffering=1024000) as fh:
             for i in range(len(idx)):
+                if idx_mapped[i] == idy_mapped[i]:
+                    continue
 
                 if names:
                     s = "%s\t%s\t%d\n" % (names[idx_mapped[i]], names[idy_mapped[i]], val[i])
                 else:
-                    s = b"%d\t%d\t%d\n" % (idx_mapped[i], idy_mapped[i], val[i])
+                    s = "%d\t%d\t%d\n" % (idx_mapped[i], idy_mapped[i], val[i])
                 l += fh.write(s)
         return l
 

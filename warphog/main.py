@@ -35,6 +35,7 @@ def init_concrete(alphabet, encoder, loader, loader_limit, fasta):
     fa_loader = LOADERS[loader](limit=loader_limit, fasta=fasta, bc=base_converter)
     return alphabet, fa_loader
 
+
 def warphog(args):
     # Init concrete implementations of components
     alphabet, fa_loader = init_concrete(None, args.encoder, args.loader, args.loader_limit, args.fasta)
