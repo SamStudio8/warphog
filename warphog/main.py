@@ -97,7 +97,12 @@ def warphog(args):
     dd = np.zeros((hog.seq_dim_x, hog.seq_dim_y), dtype=np.uint16)
     hog.broadcast_result(d, dd)
     print(dd)
+    dd = dd + dd.T - np.diag(np.diag(dd))
     s = (d > 0).sum()
+
+    print(dd)
+    if args.o:
+        np.save(args.o, dd, allow_pickle=False)
 
 
     num_pairs = hog.get_num_pairs()
