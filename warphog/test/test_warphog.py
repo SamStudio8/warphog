@@ -16,7 +16,6 @@ def hamming(seq_a, seq_b, equivalence_d):
     for i in range(len(seq_a)):
         if seq_a[i] not in equivalence_d[ seq_b[i] ]:
             distance += 1
-    print(seq_a[i], equivalence_d[seq_b[i]], distance)
     return distance
 
 def test_hamming_test():
