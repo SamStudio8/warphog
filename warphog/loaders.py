@@ -2,12 +2,13 @@ from abc import ABC, abstractmethod
 
 class FastaLoader(ABC):
 
-    def __init__(self, fasta=None, limit=-1, bc=None):
+    def __init__(self, fasta=None, limit=-1, bc=None, offset=0):
         self.count = 0
         self.fasta = fasta
         self.limit = limit
         self.base_converter = bc
 
+        self.idx_offset = offset
         self.names_to_idx = {}
 
         if not bc:
@@ -94,7 +95,7 @@ class HengFastaLoader(FastaLoader):
             #np.append(msa_char_block, (base_converter.convert_base(base) for base in seq_i))
             #seq_block.append( (base_converter.convert_base(base) for base in seq_i) )
             seq_block.append( self.base_converter.convert_seq(seq_i) )
-            self.names_to_idx[self.count] = name_i
+            self.names_to_idx[self.idx_offset + self.count] = name_i
             self.count += 1
 
             #seq_block.append(seq_i)

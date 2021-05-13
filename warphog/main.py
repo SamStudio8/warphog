@@ -7,7 +7,7 @@ import pycuda.autoinit
 from pycuda import gpuarray
 import numpy as np
 
-from warphog.hogs import HOGS
+from warphog import hogs
 from warphog.loaders import LOADERS
 from warphog.encoders import ENCODERS
 from warphog.cuda.kernels import KERNELS
@@ -15,41 +15,46 @@ from warphog.util import DEFAULT_ALPHABET
 
 def cli():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--fasta", required=True)
+    parser.add_argument("--target", required=True)
+    parser.add_argument("--query")
     parser.add_argument("--loader", choices=LOADERS.keys(), required=True)
     parser.add_argument("--loader-limit", type=int, default=-1)
     parser.add_argument("--encoder", choices=ENCODERS.keys(), required=True)
     parser.add_argument("--kernel", choices=KERNELS.keys(), required=True)
-    parser.add_argument("--hog", choices=HOGS.keys(), required=True)
     parser.add_argument("-k", type=int, default=-1)
     parser.add_argument("-o")
     args = parser.parse_args()
+
     warphog(args)
-
-
-def init_concrete(alphabet, encoder, loader, loader_limit, fasta):
-    if alphabet:
-        raise NotImplementedError()
-    alphabet = DEFAULT_ALPHABET
-    base_converter = ENCODERS[encoder](alphabet=alphabet)
-    fa_loader = LOADERS[loader](limit=loader_limit, fasta=fasta, bc=base_converter)
-    return alphabet, fa_loader
 
 
 def warphog(args):
     # Init concrete implementations of components
-    alphabet, fa_loader = init_concrete(None, args.encoder, args.loader, args.loader_limit, args.fasta)
+    alphabet = DEFAULT_ALPHABET
+    base_converter = ENCODERS[args.encoder](alphabet=alphabet)
+
+    query_block = []
+    query_count = 0
+    if args.query:
+        query_fa_loader = LOADERS[args.loader](fasta=args.query, bc=base_converter)
+        query_block = query_fa_loader.get_block()
+        query_count = query_fa_loader.get_count()
 
     # Load a block of sequences from FASTA
+    fa_loader = LOADERS[args.loader](limit=args.loader_limit, fasta=args.target, bc=base_converter, offset=query_count)
     seq_block = fa_loader.get_block()
     num_seqs = fa_loader.get_count()
     print("huge block loaded: (%d, %d)" % (num_seqs, fa_loader.get_length()))
 
-    # TODO How to set m here
-    hog = HOGS[args.hog](n=num_seqs)
+
+    if args.query:
+        hog = hogs.RectangularWarpHog(n=num_seqs + query_count, m=query_count)
+    else:
+        hog = hogs.TriangularWarpHog(n=num_seqs)
+
 
     # Send data block to GPU
-    msa_char_block = np.frombuffer("".join(seq_block).encode(), dtype=np.byte)
+    msa_char_block = np.frombuffer("".join(query_block + seq_block).encode(), dtype=np.byte)
     msa_gpu = gpuarray.to_gpu(msa_char_block)
 
     # Init return array and send to GPU
@@ -76,7 +81,7 @@ def warphog(args):
 
     kernel(
         msa_gpu,
-        np.uint(num_seqs),
+        np.uint(hog.num_seqs),
         np.uint32(fa_loader.get_length()), # msa stride
         d_gpu,
         np.int32(hog.pairs_per_thread),
@@ -96,15 +101,16 @@ def warphog(args):
 
     dd = np.zeros((hog.seq_dim_x, hog.seq_dim_y), dtype=np.uint16)
     hog.broadcast_result(d, dd)
-    print(dd)
-    dd = dd + dd.T - np.diag(np.diag(dd))
-    s = (d > 0).sum()
 
     print(dd)
+    if dd.shape[0] == dd.shape[1]:
+        dd = dd + dd.T - np.diag(np.diag(dd))
+        print(dd)
     if args.o:
         np.save(args.o, dd, allow_pickle=False)
 
 
+    s = (d > 0).sum()
     num_pairs = hog.get_num_pairs()
     print("%d non-zero edit distances found (%.2f%%)" % (s, s/num_pairs*100.0))
     print("%.2fM sequence comparions / s" % ( (num_pairs / delta.total_seconds())/ 1e6) )
@@ -113,7 +119,13 @@ def warphog(args):
 
     if args.o:
         start = datetime.datetime.now()
-        b_written = hog.output_tsv(d, args.o, k=args.k, names=fa_loader.names_to_idx)
+
+        names = {}
+        if args.query:
+            names.update( query_fa_loader.names_to_idx )
+        names.update( fa_loader.names_to_idx )
+
+        b_written = hog.output_tsv(d, args.o, k=args.k, names=names)
         mb_written = b_written / 1e6
         end = datetime.datetime.now()
         delta = end-start

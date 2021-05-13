@@ -6,8 +6,6 @@ import sys
 
 class WarpHog(ABC):
     def __init__(self, n, m=None):
-        self.num_seqs = n
-
         self.n = n
         self.m = m if m is not None else n
         self.seq_dim_x, self.seq_dim_y = self.n, self.m
@@ -94,7 +92,9 @@ class WarpHog(ABC):
 
 class RectangularWarpHog(WarpHog):
 
-    def __init__(self, n, m=1000):
+    def __init__(self, n, m):
+        if m is None:
+            raise Exception("m must be specified for RectangularWarpHog")
         super().__init__(n=n, m=m)
 
     def _get_num_pairs(self):
@@ -108,8 +108,16 @@ class RectangularWarpHog(WarpHog):
     def _get_grid_dim(self):
         return ( ceil(self.seq_dim_x / (self.pairs_per_thread * self.block_dim_x)), ceil(self.seq_dim_y / (self.block_dim_y)) )
 
+    @property
+    def num_seqs(self):
+        return self.seq_dim_x + self.seq_dim_y
 
 class TriangularWarpHog(WarpHog):
+
+    def __init__(self, n, m):
+        if m is not None and m != n:
+            raise Exception("n and m must have some rank for TriangularWarpHog")
+        super().__init__(n=n, m=m)
 
     def _get_thread_map(self):
         return np.asarray(np.triu_indices(self.num_seqs), dtype=np.uint32)
@@ -121,8 +129,7 @@ class TriangularWarpHog(WarpHog):
         grid_width = sqrt(self.get_num_pairs())
         return ( ceil(grid_width / (self.pairs_per_thread * self.block_dim_x)), ceil(grid_width / (self.block_dim_y)) )
 
+    @property
+    def num_seqs(self):
+        return self.seq_dim_x
 
-HOGS = {
-    "all": TriangularWarpHog,
-    "some": RectangularWarpHog,
-}
