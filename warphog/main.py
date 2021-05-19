@@ -1,17 +1,14 @@
 import argparse
 import datetime
-import sys
 
-import pycuda.driver as cuda
-import pycuda.autoinit
-from pycuda import gpuarray
 import numpy as np
 
 from warphog import hogs
-from warphog.loaders import LOADERS
+from warphog.cores import CORES
 from warphog.encoders import ENCODERS
-from warphog.cuda.kernels import KERNELS
+from warphog.loaders import LOADERS
 from warphog.util import DEFAULT_ALPHABET
+
 
 def cli():
     parser = argparse.ArgumentParser()
@@ -20,13 +17,12 @@ def cli():
     parser.add_argument("--loader", choices=LOADERS.keys(), required=True)
     parser.add_argument("--loader-limit", type=int, default=-1)
     parser.add_argument("--encoder", choices=ENCODERS.keys(), required=True)
-    parser.add_argument("--kernel", choices=KERNELS.keys(), required=True)
+    parser.add_argument("--core", choices=CORES.keys(), required=True, default="warp")
     parser.add_argument("-k", type=int, default=-1)
     parser.add_argument("-o")
     args = parser.parse_args()
 
     warphog(args)
-
 
 def warphog(args):
     # Init concrete implementations of components
@@ -46,28 +42,26 @@ def warphog(args):
     num_seqs = fa_loader.get_count()
     print("huge block loaded: (%d, %d)" % (num_seqs, fa_loader.get_length()))
 
-
     if args.query:
         hog = hogs.RectangularWarpHog(n=num_seqs + query_count, m=query_count)
     else:
         hog = hogs.TriangularWarpHog(n=num_seqs)
 
-
-    # Send data block to GPU
-    msa_char_block = np.frombuffer("".join(query_block + seq_block).encode(), dtype=np.byte)
-    msa_gpu = gpuarray.to_gpu(msa_char_block)
+    if args.core == "warp":
+        import pycuda.autoinit
+        import pycuda.driver as cuda
+        
+    core = CORES[args.core](query_block + seq_block, alphabet)
 
     # Init return array and send to GPU
     d = np.zeros(hog.get_num_pairs(), dtype=np.uint16)
-    #d_gpu = cuda.mem_alloc(d.nbytes)
-    #cuda.memcpy_htod(d_gpu, d)
-    d_gpu = gpuarray.to_gpu(d)
+    core.put_d(d)
+
     print("huge boi on gpu")
 
     # Generate triangle map and send to GPU
     idx_map, idy_map = hog.get_thread_map()
-    idx_map_gpu = gpuarray.to_gpu(idx_map)
-    idy_map_gpu = gpuarray.to_gpu(idy_map)
+    core.put_maps(idx_map, idy_map)
 
     print("THREAD COUNT %d" % hog.thread_count)
     print("MAPS LEN", len(idx_map), len(idy_map))
@@ -75,25 +69,21 @@ def warphog(args):
     # Hog the warps
     start = datetime.datetime.now()
 
-    kernel = KERNELS[args.kernel]()
-    kernel.prepare_kernel(alphabet=alphabet)
-    kernel = kernel.get_compiled_kernel()
-
-    kernel(
-        msa_gpu,
+    #core.engage(hog.get_num_pairs, idx_map_gpu, idy_map_gpu, block_dim=hog.block_dim, grid_dim=hog.grid_dim)
+    core.kernel(
+        core.data_block,
         np.uint(hog.num_seqs),
         np.uint32(fa_loader.get_length()), # msa stride
-        d_gpu,
+        core.result_arr,
         np.int32(hog.pairs_per_thread),
         np.uint(hog.get_num_pairs()),
-        idx_map_gpu,
-        idy_map_gpu,
+        core.idx_map,
+        core.idy_map,
         block=hog.block_dim,
         grid=hog.grid_dim,
     )
     print("fetching huge boi from gpu")
-    #cuda.memcpy_dtoh(d, d_gpu)
-    d_gpu.get(d)
+    core.get_d(d)
 
     end = datetime.datetime.now()
     delta = end-start

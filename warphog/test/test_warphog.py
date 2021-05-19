@@ -1,14 +1,14 @@
-import pytest
 import random
-import edlib
-
-from warphog.cuda.kernels import KERNELS
-from warphog.util import DEFAULT_ALPHABET
-import pycuda.driver as cuda
-import pycuda.autoinit
-from pycuda import gpuarray
-import numpy as np
+import sys
 from math import ceil, sqrt
+
+import numpy as np
+import pycuda.autoinit
+import pycuda.driver as cuda
+import pytest
+from warphog import cores
+from warphog.util import DEFAULT_ALPHABET
+
 
 def hamming(seq_a, seq_b, equivalence_d):
     assert len(seq_a) == len(seq_b)
@@ -49,34 +49,44 @@ def test_hamming_test():
         distance = hamming(test[1], test[0], DEFAULT_ALPHABET.equivalent_d)
         assert distance == test[2]
 
-def do_kernel(seq_block, num_pairs, idx_map, idy_map, block_dim, grid_dim, pairs_per_thread=1):
-    kernel = KERNELS["sam"]()
-    kernel.prepare_kernel(alphabet=DEFAULT_ALPHABET)
-    kernel = kernel.get_compiled_kernel()
+def do_kernel(expected, seq_block, num_pairs, idx_map, idy_map, block_dim, grid_dim):
+    tot_tests = 0
 
-    msa_char_block = np.frombuffer("".join(seq_block).encode(), dtype=np.byte)
-    msa_gpu = gpuarray.to_gpu(msa_char_block)
+    core = cores.GPUWarpCore(seq_block, DEFAULT_ALPHABET)
+    d = _do_kernel(core, seq_block, num_pairs, idx_map, idy_map, block_dim, grid_dim, pairs_per_thread=1)
+    n_tests = do_kernel_test(expected, d)
+    tot_tests += n_tests
+    assert n_tests == num_pairs
 
+    core = cores.CPUPreWarpCore(seq_block, DEFAULT_ALPHABET)
+    d = _do_kernel(core, seq_block, num_pairs, idx_map, idy_map, block_dim, grid_dim, pairs_per_thread=1)
+    n_tests = do_kernel_test(expected, d)
+    tot_tests += n_tests
+    assert n_tests == num_pairs
+
+    sys.stderr.write("%d pairs checked" % tot_tests)
+    return tot_tests
+
+def _do_kernel(core, seq_block, num_pairs, idx_map, idy_map, block_dim, grid_dim, pairs_per_thread=1):
     d = np.zeros(num_pairs, dtype=np.uint16)
-    d_gpu = gpuarray.to_gpu(d)
+    core.put_d(d)
 
-    idx_map_gpu = gpuarray.to_gpu(idx_map)
-    idy_map_gpu = gpuarray.to_gpu(idy_map)
+    core.put_maps(idx_map, idy_map)
 
     seq_len = len(seq_block[0])
-    kernel(
-        msa_gpu,
+    core.kernel(
+        core.data_block,
         np.uint(len(seq_block)),
         np.uint32(seq_len), # msa stride
-        d_gpu,
+        core.result_arr,
         np.int32(pairs_per_thread),
         np.uint(num_pairs),
-        idx_map_gpu,
-        idy_map_gpu,
+        core.idx_map,
+        core.idy_map,
         block=block_dim,
         grid=grid_dim,
     )
-    d_gpu.get(d)
+    core.get_d(d)
     return d
 
 
@@ -140,7 +150,8 @@ def test_e2e_warphog_M2_block11():
     grid_width = sqrt(pairs)
     grid_dim = ( ceil(grid_width / (block_dim[0])), ceil(grid_width / (block_dim[1])) )
 
-    d = do_kernel(
+    num_tests = do_kernel(
+        expected,
         seq_block,
         pairs,
         idx_map,
@@ -148,8 +159,8 @@ def test_e2e_warphog_M2_block11():
         block_dim,
         grid_dim,
     )
-    n_tests = do_kernel_test(expected, d)
-    assert n_tests == pairs
+    assert num_tests == (pairs * len(cores.CORES))
+
 
 def test_e2e_warphog_M2_block44():
     seq_block, idx_map, idy_map, expected = setup_test_M2_triangle()
@@ -160,7 +171,8 @@ def test_e2e_warphog_M2_block44():
     grid_width = sqrt(pairs)
     grid_dim = ( ceil(grid_width / (block_dim[0])), ceil(grid_width / (block_dim[1])) )
 
-    d = do_kernel(
+    num_tests = do_kernel(
+        expected,
         seq_block,
         pairs,
         idx_map,
@@ -168,8 +180,8 @@ def test_e2e_warphog_M2_block44():
         block_dim,
         grid_dim,
     )
-    n_tests = do_kernel_test(expected, d)
-    assert n_tests == pairs
+    assert num_tests == (pairs * len(cores.CORES))
+
 
 def test_e2e_warphog_M1_block11():
     seq_block, idx_map, idy_map, expected = setup_test_M1_100A()
@@ -179,7 +191,8 @@ def test_e2e_warphog_M1_block11():
     block_dim = (1,1,1)
     grid_dim = (ceil(len(idx_map) / block_dim[0]), ceil(len(idy_map) / (block_dim[1])) )
 
-    d = do_kernel(
+    num_tests = do_kernel(
+        expected,
         seq_block,
         pairs,
         idx_map,
@@ -187,8 +200,8 @@ def test_e2e_warphog_M1_block11():
         block_dim,
         grid_dim
     )
-    n_tests = do_kernel_test(expected, d)
-    assert n_tests == pairs
+    assert num_tests == (pairs * len(cores.CORES))
+
 
 
 def test_e2e_warphog_M1_block44():
@@ -199,7 +212,8 @@ def test_e2e_warphog_M1_block44():
     block_dim = (4,4,1)
     grid_dim = (ceil(len(idx_map) / block_dim[0]), ceil(len(idy_map) / (block_dim[1])) )
 
-    d = do_kernel(
+    num_tests = do_kernel(
+        expected,
         seq_block,
         pairs,
         idx_map,
@@ -207,5 +221,4 @@ def test_e2e_warphog_M1_block44():
         block_dim,
         grid_dim
     )
-    n_tests = do_kernel_test(expected, d)
-    assert n_tests == pairs
+    assert num_tests == (pairs * len(cores.CORES))

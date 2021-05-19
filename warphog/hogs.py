@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from math import ceil, sqrt
 
 import numpy as np
-import sys
+
 
 class WarpHog(ABC):
     def __init__(self, n, m=None):
@@ -114,9 +114,9 @@ class RectangularWarpHog(WarpHog):
 
 class TriangularWarpHog(WarpHog):
 
-    def __init__(self, n, m):
+    def __init__(self, n, m=None):
         if m is not None and m != n:
-            raise Exception("n and m must have some rank for TriangularWarpHog")
+            raise Exception("n and m must have same rank for TriangularWarpHog")
         super().__init__(n=n, m=m)
 
     def _get_thread_map(self):

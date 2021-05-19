@@ -1,10 +1,9 @@
+import importlib.resources as pkg_resources
 import sys
-import numpy as np
 from abc import ABC, abstractmethod
 
-import importlib.resources as pkg_resources
-
 from pycuda.compiler import SourceModule as cpp
+
 
 class KernelPrepper(ABC):
 
@@ -31,6 +30,33 @@ class KernelPrepper(ABC):
             f = self.f
         return cpp('\n'.join(self.get_kernel_lines())).get_function(self.f)
 
+class NaivePreWarpPythonHammingKernel(KernelPrepper):
+    #TODO Compile this with Cython for more gainz
+    def __init__(self):
+        def hamming(seq_a, seq_b, equivalence_d):
+            distance = 0
+            for i in range(len(seq_a)):
+                if seq_a[i] not in equivalence_d[ seq_b[i] ]:
+                    distance += 1
+            return distance
+        self.f = hamming
+
+    def prepare_kernel(self, **kwargs):
+        alphabet = kwargs.get("alphabet")
+
+        if not alphabet:
+            raise Exception("Kernel missing required kwargs...")
+        self.alphabet = alphabet
+
+    def get_compiled_kernel(self, f=None):
+        def kernel(data_block, num_seqs, stride_len, result_arr, num_thread_pairs, num_pairs, idx_map, idy_map, block=None, grid=None):
+            for i in range(num_pairs):
+                curr_idx = idx_map[i]
+                curr_idy = idy_map[i]
+                result_arr[i] = self.f(data_block[curr_idx], data_block[curr_idy], self.alphabet.equivalent_d)
+            return result_arr
+        return kernel
+
 class SamHammingKernelPrepper(KernelPrepper):
     # Luckily for me, we can use Hamming distance over Levenshtein distance as
     # we have an MSA already. All strings are the same size. Our MSA drops insertions
@@ -49,6 +75,7 @@ class SamHammingKernelPrepper(KernelPrepper):
 
         if not alphabet:
             raise Exception("Kernel missing required kwargs...")
+        self.alphabet = alphabet
 
         alphabet_matrix_cpp = []
 
@@ -69,4 +96,5 @@ class SamHammingKernelPrepper(KernelPrepper):
 
 KERNELS = {
     "sam": SamHammingKernelPrepper,
+    "python": NaivePreWarpPythonHammingKernel,
 }
