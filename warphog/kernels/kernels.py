@@ -2,6 +2,7 @@ import importlib.resources as pkg_resources
 import sys
 from abc import ABC, abstractmethod
 
+import numpy as np
 from pycuda.compiler import SourceModule as cpp
 
 
@@ -77,11 +78,13 @@ class LessNaivePreWarpPythonHammingKernel(KernelPrepper):
             raise Exception("Kernel missing required kwargs...")
         self.alphabet = alphabet
 
-        from warphog.kernels.hamming import kernel #pylint: disable=no-name-in-module,import-error
+        from warphog.kernels.hamming import \
+            kernel  # pylint: disable=no-name-in-module,import-error
         self.kernel = kernel
 
     def engage(self, data_block, num_seqs, stride_len, result_arr, num_thread_pairs, num_pairs, idx_map, idy_map, block=None, grid=None):
-        return self.kernel(data_block, num_seqs, stride_len, result_arr, num_thread_pairs, num_pairs, idx_map, idy_map, equivalence_d=self.alphabet.equivalent_d)
+        ord_l = np.asarray(self.alphabet.alphabet_ord_list, dtype=np.int8)
+        return self.kernel(data_block, num_seqs, stride_len, result_arr, num_thread_pairs, num_pairs, idx_map, idy_map, ord_l, self.alphabet.alphabet_matrix)
 
 
 class SamHammingKernelPrepper(KernelPrepper):

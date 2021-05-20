@@ -55,6 +55,7 @@ class Alphabet(object):
         self.alphabet_matrix = self._alphabet_matrix_from_pairs(equivalent_tuples, self.alphabet_lookup)
         self.alphabet_len = len(self.alphabet)
         self.equivalent_d = self._alphabet_d_from_pairs(equivalent_tuples)
+        self.ord_d = self._ord_d_from_pairs(equivalent_tuples)
 
         self.alphabet_ord_list = self._alphabet_ord_list_from_alphabet(self.alphabet)
 
@@ -88,9 +89,26 @@ class Alphabet(object):
             d[b].add(b)
         return d
 
+    def _ord_d_from_pairs(self, pairs):
+        d = {}
+        for pair in pairs:
+            a = ord(pair[0])
+            b = ord(pair[1])
+
+            if a not in d:
+                d[a] = set([])
+            if b not in d:
+                d[b] = set([])
+
+            d[a].add(b)
+            d[b].add(a)
+            d[a].add(a)
+            d[b].add(b)
+        return d
+
     def _alphabet_matrix_from_pairs(self, pairs, lookup):
         alphabet_len = len(lookup)
-        alphabet_matrix = np.ones( (alphabet_len, alphabet_len) )
+        alphabet_matrix = np.ones( (alphabet_len, alphabet_len), dtype=np.int8)
 
         for pair in pairs:
             a = lookup[pair[0]]

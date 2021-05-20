@@ -44,10 +44,14 @@ class CPUPreWarpCore(WarpCore):
 
     def __init__(self, seq_block, alphabet):
         super().__init__(seq_block, alphabet)
-        self.data_block = seq_block
+        #self.data_block = self._make_data_block(seq_block)
 
         self.kernel = KERNELS["python"]()
         self.kernel.prepare_kernel(alphabet=alphabet)
+
+    def _make_data_block(self, seq_block):
+        msa_char_block = np.fromstring("".join(seq_block).encode(), dtype=np.byte)
+        return msa_char_block
 
     def put_d(self, d):
         self.d = d

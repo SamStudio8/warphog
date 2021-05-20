@@ -63,6 +63,7 @@ def warphog(args):
     idx_map, idy_map = hog.get_thread_map()
     core.put_maps(idx_map, idy_map)
 
+    print("PAIR COUNT %d" % hog.get_num_pairs())
     print("THREAD COUNT %d" % hog.thread_count)
     print("MAPS LEN", len(idx_map), len(idy_map))
 

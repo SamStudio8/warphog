@@ -6,6 +6,8 @@ from Cython.Build import cythonize
 
 from warphog import version
 
+#import numpy as np
+
 requirements = [
     "pycuda",
     "numpy",
@@ -53,5 +55,8 @@ setup(
         "": ["*.cu"],
     },
 
-    ext_modules = cythonize("warphog/kernels/hamming.pyx"),
+    ext_modules = cythonize("warphog/kernels/hamming.pyx", 
+        compiler_directives={'language_level' : "3"},
+        #include_path=[np.get_include()],
+    ),
 )
