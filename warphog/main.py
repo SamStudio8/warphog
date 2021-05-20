@@ -57,7 +57,7 @@ def warphog(args):
     d = np.zeros(hog.get_num_pairs(), dtype=np.uint16)
     core.put_d(d)
 
-    print("huge boi on gpu")
+    print("huge boi")
 
     # Generate triangle map and send to GPU
     idx_map, idy_map = hog.get_thread_map()
@@ -83,7 +83,7 @@ def warphog(args):
         block=hog.block_dim,
         grid=hog.grid_dim,
     )
-    print("fetching huge boi from gpu")
+    print("fetching huge boi")
     core.get_d(d)
 
     end = datetime.datetime.now()
