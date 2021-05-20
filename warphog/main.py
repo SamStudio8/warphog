@@ -70,7 +70,7 @@ def warphog(args):
     start = datetime.datetime.now()
 
     #core.engage(hog.get_num_pairs, idx_map_gpu, idy_map_gpu, block_dim=hog.block_dim, grid_dim=hog.grid_dim)
-    core.kernel(
+    core.kernel.engage(
         core.data_block,
         np.uint(hog.num_seqs),
         np.uint32(fa_loader.get_length()), # msa stride

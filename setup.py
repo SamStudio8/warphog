@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import setuptools
+from setuptools import setup, find_packages
+from Cython.Build import cythonize
+
 from warphog import version
 
 requirements = [
@@ -11,9 +13,10 @@ requirements = [
 
 test_requirements = [
     "pytest",
+    "pytest-cython",
 ]
 
-setuptools.setup(
+setup(
     name="warphog",
     version=version.__version__,
     url="https://github.com/samstudio8/warphog",
@@ -27,7 +30,7 @@ setuptools.setup(
     maintainer="Sam Nicholls",
     maintainer_email="sam@samnicholls.net",
 
-    packages=setuptools.find_packages(),
+    packages=find_packages(),
     install_requires=requirements,
 
     entry_points = {
@@ -49,4 +52,6 @@ setuptools.setup(
     package_data={
         "": ["*.cu"],
     },
+
+    ext_modules = cythonize("warphog/kernels/hamming.pyx"),
 )

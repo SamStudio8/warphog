@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 import numpy as np
 from pycuda import gpuarray
 
-from warphog.cuda.kernels import KERNELS
+from warphog.kernels.kernels import KERNELS
 
 
 class WarpCore(ABC):
@@ -46,9 +46,8 @@ class CPUPreWarpCore(WarpCore):
         super().__init__(seq_block, alphabet)
         self.data_block = seq_block
 
-        kernel = KERNELS["python"]()
-        kernel.prepare_kernel(alphabet=alphabet)
-        self.kernel = kernel.get_compiled_kernel()
+        self.kernel = KERNELS["python"]()
+        self.kernel.prepare_kernel(alphabet=alphabet)
 
     def put_d(self, d):
         self.d = d
@@ -68,9 +67,8 @@ class GPUWarpCore(WarpCore):
         self.d = None
         self.data_block = self._make_data_block(seq_block)
 
-        kernel = KERNELS["sam"]()
-        kernel.prepare_kernel(alphabet=alphabet)
-        self.kernel = kernel.get_compiled_kernel()
+        self.kernel = KERNELS["sam"]()
+        self.kernel.prepare_kernel(alphabet=alphabet)
 
     def put_d(self, d):
         self.d = gpuarray.to_gpu(d)
@@ -92,7 +90,7 @@ class GPUWarpCore(WarpCore):
     #def engage(self, n_pairs, idx_map, idy_map, **kwargs):
     #    block_dim = kwargs.get("block_dim")
     #    grid_dim = kwargs.get("grid_dim")
-    #
+    
     #    if not block_dim or grid_dim:
     #        raise Exception("GPUWarpCore.engage requires block_dim and grid_dim")
 

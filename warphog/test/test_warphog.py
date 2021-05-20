@@ -74,7 +74,7 @@ def _do_kernel(core, seq_block, num_pairs, idx_map, idy_map, block_dim, grid_dim
     core.put_maps(idx_map, idy_map)
 
     seq_len = len(seq_block[0])
-    core.kernel(
+    core.kernel.engage(
         core.data_block,
         np.uint(len(seq_block)),
         np.uint32(seq_len), # msa stride

@@ -10,25 +10,17 @@ class KernelPrepper(ABC):
     def __init__(self):
         self.f = None
         self.pre_kernel = []
-        self.kernel = []
+        self.kernel = None
+        self.kernel_lines = []
         self.post_kernel = []
 
     @abstractmethod
     def prepare_kernel(self, **kwargs):
         raise NotImplementedError()
 
-    def set_kernel(self, module, cu):
-        self.kernel = [pkg_resources.read_text(sys.modules[module], cu)]
+    def engage(self, data_block, num_seqs, stride_len, result_arr, num_thread_pairs, num_pairs, idx_map, idy_map, block=None, grid=None):
+        return self.kernel(data_block, num_seqs, stride_len, result_arr, num_thread_pairs, num_pairs, idx_map, idy_map, block=block, grid=grid) # pylint: disable=not-callable
 
-    def get_kernel_lines(self):
-        return self.pre_kernel + self.kernel + self.post_kernel
-
-    def get_compiled_kernel(self, f=None):
-        if not f:
-            if not self.f:
-                raise Exception("Kernel must define default function name to execute")
-            f = self.f
-        return cpp('\n'.join(self.get_kernel_lines())).get_function(self.f)
 
 class NaivePreWarpPythonHammingKernel(KernelPrepper):
     #TODO Compile this with Cython for more gainz
@@ -48,14 +40,49 @@ class NaivePreWarpPythonHammingKernel(KernelPrepper):
             raise Exception("Kernel missing required kwargs...")
         self.alphabet = alphabet
 
-    def get_compiled_kernel(self, f=None):
         def kernel(data_block, num_seqs, stride_len, result_arr, num_thread_pairs, num_pairs, idx_map, idy_map, block=None, grid=None):
             for i in range(num_pairs):
                 curr_idx = idx_map[i]
                 curr_idy = idy_map[i]
                 result_arr[i] = self.f(data_block[curr_idx], data_block[curr_idy], self.alphabet.equivalent_d)
             return result_arr
+        self.kernel = kernel
         return kernel
+
+
+class LessNaivePreWarpPythonHammingKernel(KernelPrepper):
+    #TODO Compile this with Cython for more gainz
+    def __init__(self):
+        def hamming(seq_a, seq_b, equivalence_d):
+            distance = 0
+            for i in range(len(seq_a)):
+                if seq_a[i] not in equivalence_d[ seq_b[i] ]:
+                    distance += 1
+            return distance
+        self.f = hamming
+
+    #def prepare_kernel(self, **kwargs):
+    #    alphabet = kwargs.get("alphabet")
+    #    n_procs = kwargs.get("n_procs")
+
+    #    if not alphabet or n_procs:
+    #        raise Exception("Kernel missing required kwargs...")
+    #    self.alphabet = alphabet
+    #    self.n_procs = n_procs
+
+    def prepare_kernel(self, **kwargs):
+        alphabet = kwargs.get("alphabet")
+
+        if not alphabet:
+            raise Exception("Kernel missing required kwargs...")
+        self.alphabet = alphabet
+
+        from warphog.kernels.hamming import kernel #pylint: disable=no-name-in-module,import-error
+        self.kernel = kernel
+
+    def engage(self, data_block, num_seqs, stride_len, result_arr, num_thread_pairs, num_pairs, idx_map, idy_map, block=None, grid=None):
+        return self.kernel(data_block, num_seqs, stride_len, result_arr, num_thread_pairs, num_pairs, idx_map, idy_map, equivalence_d=self.alphabet.equivalent_d)
+
 
 class SamHammingKernelPrepper(KernelPrepper):
     # Luckily for me, we can use Hamming distance over Levenshtein distance as
@@ -68,7 +95,13 @@ class SamHammingKernelPrepper(KernelPrepper):
     def __init__(self):
         super().__init__()
         self.f = "hamming_distance"
-        self.set_kernel("warphog.cuda", "hamming.cu")
+        self.set_kernel("warphog.kernels", "hamming.cu")
+
+    def set_kernel(self, module, cu):
+        self.kernel_lines = [pkg_resources.read_text(sys.modules[module], cu)]
+
+    def get_kernel_lines(self):
+        return self.pre_kernel + self.kernel_lines + self.post_kernel
 
     def prepare_kernel(self, **kwargs):
         alphabet = kwargs.get("alphabet")
@@ -81,6 +114,7 @@ class SamHammingKernelPrepper(KernelPrepper):
 
         alphabet_matrix_cpp.append("__device__ int ord_lookup[%d] = {%s};" % (len(alphabet.alphabet_ord_list), ','.join([str(x) for x in alphabet.alphabet_ord_list])))
 
+        #TODO This could be a bitmap
         alphabet_matrix_cpp.append("__device__ int equivalent_lookup[%d][%d] = {" % (alphabet.alphabet_len, alphabet.alphabet_len))
         print(alphabet.alphabet_matrix)
         for row in alphabet.alphabet_matrix:
@@ -94,7 +128,11 @@ class SamHammingKernelPrepper(KernelPrepper):
 
         self.pre_kernel = alphabet_matrix_cpp
 
+        self.kernel = cpp('\n'.join(self.get_kernel_lines())).get_function(self.f)
+        return self.kernel
+
 KERNELS = {
     "sam": SamHammingKernelPrepper,
-    "python": NaivePreWarpPythonHammingKernel,
+    #"python": NaivePreWarpPythonHammingKernel,
+    "python": LessNaivePreWarpPythonHammingKernel,
 }
