@@ -157,8 +157,12 @@ def warphog_cpu(args, alphabet, queries):
         # handlers can communuicate with different mds independently, circumventing
         # read speed limitations -- so each process gets their own file handle to --target.
         tells, names, seqs = loader.get_block(target_n=1)
-        result_block = []
+        result_block = {
+            "working_time": 0,
+            "result": [],
+        }
         done = False
+        start = datetime.datetime.now()
         while names and not done:
             for i, name in enumerate(names):
                 if tells[i] > block_end:
@@ -174,40 +178,76 @@ def warphog_cpu(args, alphabet, queries):
                     #seq_b_idx = np.take(ord_l, np.array([seq.encode()]).view(np.uint8))
                     #distance = np.sum(alphabet_matrix[ seq_a_idx, seq_b_idx ])
                     d = kernel_wrapb(q_seq, seqs[i], len(q_seq), ord_l, alphabet_matrix)
-                    result_block.append({
+                    result_block["result"].append({
                         "block": block,
                         "qname": q_name,
                         "tname": name,
                         "distance": d,
                     })
             tells, names, seqs = loader.get_block(target_n=1)
+        end = datetime.datetime.now()
 
         # Adding to Multiprocessing.Queue is awfully slow for many small objects,
         # so cache up and blow the entire result_block at the thing instead
         #TODO Probably a compromise to be made here between pushing as much as
         # possible but not maintaining huge lists to append on
+        result_block["working_time"] = end-start
+        result_block["loader_len"] = loader.get_length()
         out_q.put(result_block)
 
-    def kernel_output(out_fn, out_q, n_workers):
+    def kernel_d_output(d, out_q, n_workers):
+        pass
+
+    def kernel_fp_output(out_fn, out_q, n_workers):
+        s = 0
+        num_pairs = 0
+        b_written = 0
+        writing_time = datetime.timedelta(0)
+        working_time = datetime.timedelta(0)
+        l = None
+
         if out_fn == '-':
             out_fn = sys.stdout
         else:
             out_fn = open(out_fn, 'w')
 
+        wall_start = datetime.datetime.now()
+
         working_workers = n_workers
         while working_workers > 0:
             work = out_q.get()
             working_workers -= 1
-            for res in work:
-                out_fn.write('\t'.join([
+
+            if not l:
+                l = work["loader_len"]
+            start = datetime.datetime.now()
+            for res in work["result"]:
+                num_pairs += 1
+                if res["distance"] > 0:
+                    s += 1
+                b_written += out_fn.write('\t'.join([
                     res["qname"],
                     res["tname"],
                     str(res["distance"]),
                 ]) + '\n')
+            end = datetime.datetime.now()
             sys.stderr.write("[NOTE] %d workers remaining\n" % working_workers)
+            writing_time += (end-start)
 
         if out_fn != '-':
             out_fn.close()
+
+        wall_end = datetime.datetime.now()
+        wall_delta = wall_end - wall_start
+
+        print("%d non-zero edit distances found (%.2f%%)" % (s, s/num_pairs*100.0))
+        print("%.2fM sequence comparions / s" % ( (num_pairs / wall_delta.total_seconds())/ 1e6) )
+        total_bases = l * num_pairs
+        print("%.2fB base comparions / s" % ( (total_bases / wall_delta.total_seconds()) / 1e9 ))
+
+        mb_written = b_written / 1e6
+        print("%.2f GB written in %s (%.2f MB/s)" % (mb_written / 1000, str(writing_time), mb_written / writing_time.total_seconds()))
+
     out_q = Queue()
 
     ord_l = np.asarray(alphabet.alphabet_ord_list, dtype=np.int8)
@@ -219,7 +259,7 @@ def warphog_cpu(args, alphabet, queries):
     block_start = 0
 
     # Add an extra process for writing out results
-    p = Process(target=kernel_output, args=(
+    p = Process(target=kernel_fp_output, args=(
         args.o,
         out_q,
         n_procs,
