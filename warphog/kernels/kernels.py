@@ -78,8 +78,7 @@ class LessNaivePreWarpPythonHammingKernel(KernelPrepper):
             raise Exception("Kernel missing required kwargs...")
         self.alphabet = alphabet
 
-        from warphog.kernels.hamming import \
-            kernel  # pylint: disable=no-name-in-module,import-error
+        from warphog.kernels.hamming import kernel  # pylint: disable=no-name-in-module,import-error
         self.kernel = kernel
 
     def engage(self, data_block, num_seqs, stride_len, result_arr, num_thread_pairs, num_pairs, idx_map, idy_map, block=None, grid=None):

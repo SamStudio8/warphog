@@ -14,7 +14,7 @@ cdef unsigned short hamming(char* seq_a, char* seq_b, unsigned int l, DTYPE_t[::
     for i in range(l):
         a = ord_l[seq_a[i]]
         b = ord_l[seq_b[i]]
-        distance += alphabet_mat[a][b]
+        distance += alphabet_mat[a,b]
     return distance
 
 @cython.boundscheck(False)
@@ -26,3 +26,6 @@ def kernel(data_block, num_seqs, unsigned int stride_len, RTYPE_t[::1] result_ar
         curr_idy = idy_map[i]
         result_arr[i] = hamming(data_block[curr_idx].encode(), data_block[curr_idy].encode(), stride_len, ord_l, alphabet_mat)
     return result_arr
+
+def kernel_wrapb(bytes seq_a, bytes seq_b, unsigned int l, ord_l, alphabet_mat):
+    return hamming(seq_a, seq_b, l, ord_l, alphabet_mat)
