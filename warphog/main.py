@@ -119,7 +119,7 @@ def warphog(args):
 
     s = (d > 0).sum()
     num_pairs = hog.get_num_pairs()
-    print("%d non-zero edit distances found (%.2f%%)" % (s, s/num_pairs*100.0))
+    print("%d non-zero edit distances found (%.2f%%) in %s" % (s, s/num_pairs*100.0, str(delta)))
     print("%.2fM sequence comparions / s" % ( (num_pairs / delta.total_seconds())/ 1e6) )
     total_bases = fa_loader.get_length() * num_pairs
     print("%.2fB base comparions / s" % ( (total_bases / delta.total_seconds()) / 1e9 ))
@@ -240,7 +240,7 @@ def warphog_cpu(args, alphabet, queries):
         wall_end = datetime.datetime.now()
         wall_delta = wall_end - wall_start
 
-        print("%d non-zero edit distances found (%.2f%%)" % (s, s/num_pairs*100.0))
+        print("%d non-zero edit distances found (%.2f%%) in %s" % (s, s/num_pairs*100.0, str(wall_delta)))
         print("%.2fM sequence comparions / s" % ( (num_pairs / wall_delta.total_seconds())/ 1e6) )
         total_bases = l * num_pairs
         print("%.2fB base comparions / s" % ( (total_bases / wall_delta.total_seconds()) / 1e9 ))
