@@ -1,5 +1,7 @@
 import argparse
 import datetime
+import os
+import sys
 
 import numpy as np
 
@@ -9,6 +11,7 @@ from warphog.encoders import ENCODERS
 from warphog.loaders import LOADERS
 from warphog.util import DEFAULT_ALPHABET
 
+CORES["prewarp-beta"] = None
 
 def cli():
     parser = argparse.ArgumentParser()
@@ -19,6 +22,7 @@ def cli():
     parser.add_argument("--encoder", choices=ENCODERS.keys(), required=True)
     parser.add_argument("--core", choices=CORES.keys(), required=True, default="warp")
     parser.add_argument("-k", type=int, default=-1)
+    parser.add_argument("-t", type=int, default=-1)
     parser.add_argument("-o")
     args = parser.parse_args()
 
@@ -28,6 +32,14 @@ def warphog(args):
     # Init concrete implementations of components
     alphabet = DEFAULT_ALPHABET
     base_converter = ENCODERS[args.encoder](alphabet=alphabet)
+
+
+    if args.core == "warp":
+        import pycuda.autoinit
+        import pycuda.driver as cuda
+    elif args.core == "prewarp-beta":
+        warphog_cpu(args)
+        return
 
     query_block = []
     query_count = 0
@@ -47,10 +59,6 @@ def warphog(args):
     else:
         hog = hogs.TriangularWarpHog(n=num_seqs)
 
-    if args.core == "warp":
-        import pycuda.autoinit
-        import pycuda.driver as cuda
-        
     core = CORES[args.core](query_block + seq_block, alphabet)
 
     # Init return array and send to GPU
@@ -121,3 +129,126 @@ def warphog(args):
         end = datetime.datetime.now()
         delta = end-start
         print("%.2f GB written in %s (%.2f MB/s)" % (mb_written / 1000, str(delta), mb_written / delta.total_seconds()))
+
+def warphog_cpu(args):
+    from multiprocessing import Process, Queue, Array, cpu_count
+    from warphog.kernels.hamming import kernel_wrapb  # pylint: disable=no-name-in-module,import-error
+    from math import ceil
+    # thanks heng
+    def readfq(fp): # this is a generator function
+        last = None # this is a buffer keeping the last unprocessed line
+        while True: # mimic closure; is it a bad idea?
+            if not last: # the first record or a record following a fastq
+                for l in fp: # search for the start of the next record
+                    if l[0] in '>@': # fasta/q header line
+                        last = l[:-1] # save this line
+                        break
+            if not last: break
+            name, seqs, last = last[1:].partition(" ")[0], [], None
+            for l in fp: # read the sequence
+                if l[0] in '@+>':
+                    last = l[:-1]
+                    break
+                seqs.append(l[:-1])
+            if not last or last[0] != '+': # this is a fasta record
+                yield name, ''.join(seqs), None # yield a fasta record
+                if not last: break
+            else: # this is a fastq record
+                seq, leng, seqs = ''.join(seqs), 0, []
+                for l in fp: # read the quality
+                    seqs.append(l[:-1])
+                    leng += len(l) - 1
+                    if leng >= len(seq): # have read enough quality
+                        last = None
+                        yield name, seq, ''.join(seqs); # yield a fastq record
+                        break
+                if last: # reach EOF before reading enough quality
+                    yield name, seq, None # yield a fasta record instead
+                    break
+
+    # Read queries to memory
+    queries = {}
+    with open(args.query) as query_fh:
+        for name, seq, qual in readfq(query_fh):
+            queries[name] = seq.encode()
+    sys.stderr.write(f"[NOTE] {len(queries)} queries loaded\n")
+
+    n_procs = cpu_count()
+    if args.t > 0:
+        n_procs = args.t
+    sys.stderr.write(f"[NOTE] {n_procs} processes\n")
+
+    processes = []
+
+    def kernel_fp_hamming(fn, queries, ord_l, alphabet_matrix, block_start, block_end, block):
+        # Passing large sequences through the multiprocessing queue seemed slow.
+        # Additionally, we are limited by the speed of ceph, but multiple file
+        # handlers can communuicate with different mds independently, circumventing
+        # read speed limitations -- so each process gets their own file handle to --target.
+        with open(fn) as target_fh:
+            target_fh.seek(block_start)
+            line = target_fh.readline()
+            first = True
+            while line:
+                if line[0] == '>':
+                    if (target_fh.tell() - len(line)) > block_end:
+                        # Line starts after end of block, should be picked up by
+                        # next block
+                        print("[NOTE] Cowardly leaving block")
+                        return
+
+                    name = line.strip()
+
+                    if first:
+                        first = False
+                else:
+                    if first:
+                        # If the first line in the block does not start >
+                        # ignore it, the previous block will pick it up
+                        pass
+                    else:
+                        # Must be the sequence instead
+                        seq = line.strip()
+
+                        # Push block
+                        for q_name, q_seq in queries.items():
+                            #distance = 0
+                            #seq_a_idx = np.take(ord_l, np.array([q_seq]).view(np.uint8))
+                            #seq_b_idx = np.take(ord_l, np.array([seq.encode()]).view(np.uint8))
+                            #distance = np.sum(alphabet_matrix[ seq_a_idx, seq_b_idx ])
+                            print(block, q_name, name, kernel_wrapb(q_seq, seq.encode(), len(q_seq), ord_l, alphabet_matrix))
+                line = target_fh.readline()
+
+    def kernel_output():
+        pass
+
+    ord_l = np.asarray(DEFAULT_ALPHABET.alphabet_ord_list, dtype=np.int8)
+    alphabet_matrix = DEFAULT_ALPHABET.alphabet_matrix
+
+    # Determine --target chunks
+    target_size = os.path.getsize(args.target)
+    block_size = ceil( target_size / n_procs )
+    block_start = 0
+
+    for proc_no in range(n_procs):
+        p = Process(target=kernel_fp_hamming, args=(
+            args.target,
+            queries,
+            ord_l,
+            alphabet_matrix,
+            block_start,
+            block_start+block_size,
+            proc_no,
+        ))
+        processes.append(p)
+
+        block_start += block_size
+
+    # Engage
+    for p in processes:
+        p.start()
+
+    # Block
+    for p in processes:
+        p.join()
+
