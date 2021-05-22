@@ -40,11 +40,14 @@ class OrdBaseConverter(BaseConverter):
             a.append(self.alphabet.lookup_ord(base))
         return a
 
-class TomsLuckyBaseConverter(BaseConverter):
+class BytesConverter(BaseConverter):
     def convert_base(self, b):
         raise NotImplementedError()
+    def convert_seq(self, seq):
+        return seq.encode()
+
 
 ENCODERS = {
     "none": NoBaseConverter,
-
+    "bytes": BytesConverter,
 }

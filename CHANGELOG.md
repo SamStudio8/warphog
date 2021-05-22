@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 * `--core prewarp-beta` is a hilariously fast version of Hamming on the CPU, after adding appropriate static types to Cython definition and re-writing the FASTA parser to read in a striped fashion
     * Completely unintegrated into the existing codebase which previously loaded sequences up-front (for the GPU) so needs some thought
+* `add_seq` on `FastaLoader` manages sequence names and lengths for blocks, and handles sequence conversion
+* `TrivialFastaLoader` added to loaders
+* `BytesEncoder` added to encoders
+
+### Removed
+* `TestFastaLoader` removed from loaders
+* `limit` argument removed from `FastaLoader` interface, use `get_block(target_n=limit)` instead
 
 ## 0.3.2 - 2021-05-20
 ### Changed

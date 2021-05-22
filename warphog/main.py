@@ -33,14 +33,6 @@ def warphog(args):
     alphabet = DEFAULT_ALPHABET
     base_converter = ENCODERS[args.encoder](alphabet=alphabet)
 
-
-    if args.core == "warp":
-        import pycuda.autoinit
-        import pycuda.driver as cuda
-    elif args.core == "prewarp-beta":
-        warphog_cpu(args)
-        return
-
     query_block = []
     query_count = 0
     if args.query:
@@ -48,9 +40,23 @@ def warphog(args):
         query_block = query_fa_loader.get_block()
         query_count = query_fa_loader.get_count()
 
+    if args.core == "warp":
+        import pycuda.autoinit
+        import pycuda.driver as cuda
+    elif args.core == "prewarp-beta":
+        if not args.query:
+            raise Exception("prewarp-beta only supports modes with --query")
+        if args.encoder != "bytes":
+            raise Exception("must use --encoder bytes with prewarp-beta")
+        queries = {}
+        for i, name in enumerate(query_fa_loader.names):
+            queries = {name: query_block[i]}
+        warphog_cpu(args, alphabet, queries)
+        return
+
     # Load a block of sequences from FASTA
-    fa_loader = LOADERS[args.loader](limit=args.loader_limit, fasta=args.target, bc=base_converter, offset=query_count)
-    seq_block = fa_loader.get_block()
+    fa_loader = LOADERS[args.loader](fasta=args.target, bc=base_converter, offset=query_count)
+    seq_block = fa_loader.get_block(target_n=args.loader_limit)
     num_seqs = fa_loader.get_count()
     print("huge block loaded: (%d, %d)" % (num_seqs, fa_loader.get_length()))
 
@@ -130,47 +136,10 @@ def warphog(args):
         delta = end-start
         print("%.2f GB written in %s (%.2f MB/s)" % (mb_written / 1000, str(delta), mb_written / delta.total_seconds()))
 
-def warphog_cpu(args):
+def warphog_cpu(args, alphabet, queries):
     from multiprocessing import Process, Queue, Array, cpu_count
     from warphog.kernels.hamming import kernel_wrapb  # pylint: disable=no-name-in-module,import-error
     from math import ceil
-    # thanks heng
-    def readfq(fp): # this is a generator function
-        last = None # this is a buffer keeping the last unprocessed line
-        while True: # mimic closure; is it a bad idea?
-            if not last: # the first record or a record following a fastq
-                for l in fp: # search for the start of the next record
-                    if l[0] in '>@': # fasta/q header line
-                        last = l[:-1] # save this line
-                        break
-            if not last: break
-            name, seqs, last = last[1:].partition(" ")[0], [], None
-            for l in fp: # read the sequence
-                if l[0] in '@+>':
-                    last = l[:-1]
-                    break
-                seqs.append(l[:-1])
-            if not last or last[0] != '+': # this is a fasta record
-                yield name, ''.join(seqs), None # yield a fasta record
-                if not last: break
-            else: # this is a fastq record
-                seq, leng, seqs = ''.join(seqs), 0, []
-                for l in fp: # read the quality
-                    seqs.append(l[:-1])
-                    leng += len(l) - 1
-                    if leng >= len(seq): # have read enough quality
-                        last = None
-                        yield name, seq, ''.join(seqs); # yield a fastq record
-                        break
-                if last: # reach EOF before reading enough quality
-                    yield name, seq, None # yield a fasta record instead
-                    break
-
-    # Read queries to memory
-    queries = {}
-    with open(args.query) as query_fh:
-        for name, seq, qual in readfq(query_fh):
-            queries[name] = seq.encode()
     sys.stderr.write(f"[NOTE] {len(queries)} queries loaded\n")
 
     n_procs = cpu_count()
@@ -180,50 +149,33 @@ def warphog_cpu(args):
 
     processes = []
 
-    def kernel_fp_hamming(fn, queries, ord_l, alphabet_matrix, block_start, block_end, block):
+    def kernel_fp_hamming(loader, queries, ord_l, alphabet_matrix, block_start, block_end, block):
         # Passing large sequences through the multiprocessing queue seemed slow.
         # Additionally, we are limited by the speed of ceph, but multiple file
         # handlers can communuicate with different mds independently, circumventing
         # read speed limitations -- so each process gets their own file handle to --target.
-        with open(fn) as target_fh:
-            target_fh.seek(block_start)
-            line = target_fh.readline()
-            first = True
-            while line:
-                if line[0] == '>':
-                    if (target_fh.tell() - len(line)) > block_end:
-                        # Line starts after end of block, should be picked up by
-                        # next block
-                        print("[NOTE] Cowardly leaving block")
-                        return
+        tells, names, seqs = loader.get_block()
+        while names:
+            for i, name in enumerate(names):
+                if tells[i] > block_end:
+                    # Line starts after end of block, should be picked up by
+                    # next block
+                    print("[NOTE] Cowardly leaving block")
+                    return
 
-                    name = line.strip()
-
-                    if first:
-                        first = False
-                else:
-                    if first:
-                        # If the first line in the block does not start >
-                        # ignore it, the previous block will pick it up
-                        pass
-                    else:
-                        # Must be the sequence instead
-                        seq = line.strip()
-
-                        # Push block
-                        for q_name, q_seq in queries.items():
-                            #distance = 0
-                            #seq_a_idx = np.take(ord_l, np.array([q_seq]).view(np.uint8))
-                            #seq_b_idx = np.take(ord_l, np.array([seq.encode()]).view(np.uint8))
-                            #distance = np.sum(alphabet_matrix[ seq_a_idx, seq_b_idx ])
-                            print(block, q_name, name, kernel_wrapb(q_seq, seq.encode(), len(q_seq), ord_l, alphabet_matrix))
-                line = target_fh.readline()
+                for q_name, q_seq in queries.items():
+                    #distance = 0
+                    #seq_a_idx = np.take(ord_l, np.array([q_seq]).view(np.uint8))
+                    #seq_b_idx = np.take(ord_l, np.array([seq.encode()]).view(np.uint8))
+                    #distance = np.sum(alphabet_matrix[ seq_a_idx, seq_b_idx ])
+                    print(block, q_name, name, kernel_wrapb(q_seq, seqs[i], len(q_seq), ord_l, alphabet_matrix))
+            tells, names, seqs = loader.get_block()
 
     def kernel_output():
         pass
 
-    ord_l = np.asarray(DEFAULT_ALPHABET.alphabet_ord_list, dtype=np.int8)
-    alphabet_matrix = DEFAULT_ALPHABET.alphabet_matrix
+    ord_l = np.asarray(alphabet.alphabet_ord_list, dtype=np.int8)
+    alphabet_matrix = alphabet.alphabet_matrix
 
     # Determine --target chunks
     target_size = os.path.getsize(args.target)
@@ -232,7 +184,7 @@ def warphog_cpu(args):
 
     for proc_no in range(n_procs):
         p = Process(target=kernel_fp_hamming, args=(
-            args.target,
+            LOADERS["trivial"](fasta=args.target, bc=ENCODERS["bytes"](alphabet=alphabet), seek_offset=block_start), #TODO Init inside kernel?
             queries,
             ord_l,
             alphabet_matrix,
