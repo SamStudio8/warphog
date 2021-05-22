@@ -51,7 +51,7 @@ def warphog(args):
             raise Exception("must use --encoder bytes with prewarp-beta")
         queries = {}
         for i, name in enumerate(query_fa_loader.names):
-            queries = {name: query_block[i]}
+            queries[name] = query_block[i]
         warphog_cpu(args, alphabet, queries)
         return
 
@@ -156,7 +156,7 @@ def warphog_cpu(args, alphabet, queries):
         # Additionally, we are limited by the speed of ceph, but multiple file
         # handlers can communuicate with different mds independently, circumventing
         # read speed limitations -- so each process gets their own file handle to --target.
-        tells, names, seqs = loader.get_block()
+        tells, names, seqs = loader.get_block(target_n=1)
         result_block = []
         done = False
         while names and not done:
@@ -166,6 +166,7 @@ def warphog_cpu(args, alphabet, queries):
                     # next block
                     sys.stderr.write("[NOTE] Cowardly leaving block\n")
                     done = True
+                    break
 
                 for q_name, q_seq in queries.items():
                     #distance = 0
@@ -179,10 +180,12 @@ def warphog_cpu(args, alphabet, queries):
                         "tname": name,
                         "distance": d,
                     })
-            tells, names, seqs = loader.get_block()
+            tells, names, seqs = loader.get_block(target_n=1)
 
         # Adding to Multiprocessing.Queue is awfully slow for many small objects,
         # so cache up and blow the entire result_block at the thing instead
+        #TODO Probably a compromise to be made here between pushing as much as
+        # possible but not maintaining huge lists to append on
         out_q.put(result_block)
 
     def kernel_output(out_fn, out_q, n_workers):

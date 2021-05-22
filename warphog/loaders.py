@@ -31,7 +31,7 @@ class FastaLoader(ABC):
         return self.base_converter.convert_seq(seq)
 
     @abstractmethod
-    def get_block(self, target_n=1):
+    def get_block(self, target_n=-1):
         raise NotImplementedError()
     def get_length(self):
         return self.seq_len
@@ -51,7 +51,8 @@ class TrivialFastaLoader(FastaLoader):
         self.first = True
         self.tell = self.handle.tell()
 
-    def get_block(self, target_n=1):
+    #TODO Does not match the interface for HengFastaLoader
+    def get_block(self, target_n=-1):
         line = self.handle.readline()
         curr_block_size = 0
         names = []
@@ -118,7 +119,7 @@ class HengFastaLoader(FastaLoader):
                     yield name, seq, None # yield a fasta record instead
                     break
 
-    def get_block(self, target_n=1):
+    def get_block(self, target_n=-1):
         #msa_char_block = np.zeros( (1, self.get_length()) , dtype=np.int32)
         seq_block = []
         curr_block_size = 0
