@@ -12,9 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `TrivialFastaLoader` added to loaders
 * `BytesEncoder` added to encoders
 
+### Changed
+* `get_length` no longer requires implementing in loader interfaces
+
 ### Removed
 * `TestFastaLoader` removed from loaders
 * `limit` argument removed from `FastaLoader` interface, use `get_block(target_n=limit)` instead
+
 
 ## 0.3.2 - 2021-05-20
 ### Changed

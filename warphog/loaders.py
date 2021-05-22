@@ -33,9 +33,8 @@ class FastaLoader(ABC):
     @abstractmethod
     def get_block(self, target_n=1):
         raise NotImplementedError()
-    @abstractmethod
     def get_length(self):
-        raise NotImplementedError()
+        return self.seq_len
     def get_count(self):
         return self.count
 
@@ -85,8 +84,6 @@ class TrivialFastaLoader(FastaLoader):
 
         return tells, names, seqs
 
-    def get_length(self):
-        return self.seq_len
 
 class HengFastaLoader(FastaLoader):
     # thanks heng
@@ -141,8 +138,6 @@ class HengFastaLoader(FastaLoader):
         #return msa_char_block
         return seq_block
 
-    def get_length(self):
-        return self.seq_len
 
 LOADERS = {
     "heng": HengFastaLoader,
