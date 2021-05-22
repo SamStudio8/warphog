@@ -23,7 +23,7 @@ def cli():
     parser.add_argument("--core", choices=CORES.keys(), required=True, default="warp")
     parser.add_argument("-k", type=int, default=-1)
     parser.add_argument("-t", type=int, default=-1)
-    parser.add_argument("-o")
+    parser.add_argument("-o", default='-')
     args = parser.parse_args()
 
     warphog(args)
@@ -124,7 +124,7 @@ def warphog(args):
     total_bases = fa_loader.get_length() * num_pairs
     print("%.2fB base comparions / s" % ( (total_bases / delta.total_seconds()) / 1e9 ))
 
-    if args.o:
+    if args.o != '-':
         start = datetime.datetime.now()
 
         names = {}
@@ -151,30 +151,61 @@ def warphog_cpu(args, alphabet, queries):
 
     processes = []
 
-    def kernel_fp_hamming(loader, queries, ord_l, alphabet_matrix, block_start, block_end, block):
+    def kernel_fp_hamming(out_q, loader, queries, ord_l, alphabet_matrix, block_start, block_end, block):
         # Passing large sequences through the multiprocessing queue seemed slow.
         # Additionally, we are limited by the speed of ceph, but multiple file
         # handlers can communuicate with different mds independently, circumventing
         # read speed limitations -- so each process gets their own file handle to --target.
         tells, names, seqs = loader.get_block()
-        while names:
+        result_block = []
+        done = False
+        while names and not done:
             for i, name in enumerate(names):
                 if tells[i] > block_end:
                     # Line starts after end of block, should be picked up by
                     # next block
-                    print("[NOTE] Cowardly leaving block")
-                    return
+                    sys.stderr.write("[NOTE] Cowardly leaving block\n")
+                    done = True
 
                 for q_name, q_seq in queries.items():
                     #distance = 0
                     #seq_a_idx = np.take(ord_l, np.array([q_seq]).view(np.uint8))
                     #seq_b_idx = np.take(ord_l, np.array([seq.encode()]).view(np.uint8))
                     #distance = np.sum(alphabet_matrix[ seq_a_idx, seq_b_idx ])
-                    print(block, q_name, name, kernel_wrapb(q_seq, seqs[i], len(q_seq), ord_l, alphabet_matrix))
+                    d = kernel_wrapb(q_seq, seqs[i], len(q_seq), ord_l, alphabet_matrix)
+                    result_block.append({
+                        "block": block,
+                        "qname": q_name,
+                        "tname": name,
+                        "distance": d,
+                    })
             tells, names, seqs = loader.get_block()
 
-    def kernel_output():
-        pass
+        # Adding to Multiprocessing.Queue is awfully slow for many small objects,
+        # so cache up and blow the entire result_block at the thing instead
+        out_q.put(result_block)
+
+    def kernel_output(out_fn, out_q, n_workers):
+        if out_fn == '-':
+            out_fn = sys.stdout
+        else:
+            out_fn = open(out_fn, 'w')
+
+        working_workers = n_workers
+        while working_workers > 0:
+            work = out_q.get()
+            working_workers -= 1
+            for res in work:
+                out_fn.write('\t'.join([
+                    res["qname"],
+                    res["tname"],
+                    str(res["distance"]),
+                ]) + '\n')
+            sys.stderr.write("[NOTE] %d workers remaining\n" % working_workers)
+
+        if out_fn != '-':
+            out_fn.close()
+    out_q = Queue()
 
     ord_l = np.asarray(alphabet.alphabet_ord_list, dtype=np.int8)
     alphabet_matrix = alphabet.alphabet_matrix
@@ -184,8 +215,17 @@ def warphog_cpu(args, alphabet, queries):
     block_size = ceil( target_size / n_procs )
     block_start = 0
 
+    # Add an extra process for writing out results
+    p = Process(target=kernel_output, args=(
+        args.o,
+        out_q,
+        n_procs,
+    ))
+    processes.append(p)
+
     for proc_no in range(n_procs):
         p = Process(target=kernel_fp_hamming, args=(
+            out_q,
             LOADERS["trivial"](fasta=args.target, bc=ENCODERS["bytes"](alphabet=alphabet), seek_offset=block_start), #TODO Init inside kernel?
             queries,
             ord_l,

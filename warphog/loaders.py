@@ -60,7 +60,7 @@ class TrivialFastaLoader(FastaLoader):
         while line:
             if line[0] == '>':
                 tells.append(self.handle.tell() - len(line))
-                name = line.strip()
+                name = line[1:-1]
 
                 if self.first:
                     self.first = False
