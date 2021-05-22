@@ -44,11 +44,14 @@ def warphog(args):
         import pycuda.autoinit
         import pycuda.driver as cuda
 
+    if "prewarp" in args.core:
+        # Must use bytes to speak to the pyx kernel
+        if args.encoder != "bytes":
+            raise Exception("must use --encoder bytes with prewarp-beta")
+
     if args.core == "prewarp-beta":
         if not args.query:
             raise Exception("prewarp-beta only supports modes with --query")
-        if args.encoder != "bytes":
-            raise Exception("must use --encoder bytes with prewarp-beta")
         queries = {}
         for i, name in enumerate(query_fa_loader.names):
             queries[name] = query_block[i]

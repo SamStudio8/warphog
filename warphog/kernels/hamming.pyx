@@ -24,7 +24,7 @@ def kernel(data_block, num_seqs, unsigned int stride_len, RTYPE_t[::1] result_ar
     for i in range(num_pairs):
         curr_idx = idx_map[i]
         curr_idy = idy_map[i]
-        result_arr[i] = hamming(data_block[curr_idx].encode(), data_block[curr_idy].encode(), stride_len, ord_l, alphabet_mat)
+        result_arr[i] = hamming(data_block[curr_idx], data_block[curr_idy], stride_len, ord_l, alphabet_mat)
     return result_arr
 
 def kernel_wrapb(bytes seq_a, bytes seq_b, unsigned int l, ord_l, alphabet_mat):

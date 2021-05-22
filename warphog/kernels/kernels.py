@@ -23,36 +23,7 @@ class KernelPrepper(ABC):
         return self.kernel(data_block, num_seqs, stride_len, result_arr, num_thread_pairs, num_pairs, idx_map, idy_map, block=block, grid=grid) # pylint: disable=not-callable
 
 
-class NaivePreWarpPythonHammingKernel(KernelPrepper):
-    #TODO Compile this with Cython for more gainz
-    def __init__(self):
-        def hamming(seq_a, seq_b, equivalence_d):
-            distance = 0
-            for i in range(len(seq_a)):
-                if seq_a[i] not in equivalence_d[ seq_b[i] ]:
-                    distance += 1
-            return distance
-        self.f = hamming
-
-    def prepare_kernel(self, **kwargs):
-        alphabet = kwargs.get("alphabet")
-
-        if not alphabet:
-            raise Exception("Kernel missing required kwargs...")
-        self.alphabet = alphabet
-
-        def kernel(data_block, num_seqs, stride_len, result_arr, num_thread_pairs, num_pairs, idx_map, idy_map, block=None, grid=None):
-            for i in range(num_pairs):
-                curr_idx = idx_map[i]
-                curr_idy = idy_map[i]
-                result_arr[i] = self.f(data_block[curr_idx], data_block[curr_idy], self.alphabet.equivalent_d)
-            return result_arr
-        self.kernel = kernel
-        return kernel
-
-
 class LessNaivePreWarpPythonHammingKernel(KernelPrepper):
-    #TODO Compile this with Cython for more gainz
     def __init__(self):
         def hamming(seq_a, seq_b, equivalence_d):
             distance = 0
@@ -135,6 +106,5 @@ class SamHammingKernelPrepper(KernelPrepper):
 
 KERNELS = {
     "sam": SamHammingKernelPrepper,
-    #"python": NaivePreWarpPythonHammingKernel,
     "python": LessNaivePreWarpPythonHammingKernel,
 }
