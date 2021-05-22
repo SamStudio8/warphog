@@ -43,7 +43,8 @@ def warphog(args):
     if args.core == "warp":
         import pycuda.autoinit
         import pycuda.driver as cuda
-    elif args.core == "prewarp-beta":
+
+    if args.core == "prewarp-beta":
         if not args.query:
             raise Exception("prewarp-beta only supports modes with --query")
         if args.encoder != "bytes":
@@ -104,16 +105,17 @@ def warphog(args):
     delta = end-start
     print(delta)
 
-    dd = np.zeros((hog.seq_dim_x, hog.seq_dim_y), dtype=np.uint16)
-    hog.broadcast_result(d, dd)
-
-    print(dd)
-    if dd.shape[0] == dd.shape[1]:
-        dd = dd + dd.T - np.diag(np.diag(dd))
-        print(dd)
-    if args.o:
-        np.save(args.o, dd, allow_pickle=False)
-
+    # Commented out partly because I can't be bothered making this work with the
+    # prewarp-beta, but also because it was useless anyway
+    #
+    #dd = np.zeros((hog.seq_dim_x, hog.seq_dim_y), dtype=np.uint16)
+    #hog.broadcast_result(d, dd)
+    #print(dd)
+    #if dd.shape[0] == dd.shape[1]:
+    #    dd = dd + dd.T - np.diag(np.diag(dd))
+    #    print(dd)
+    #if args.o:
+    #    np.save(args.o, dd, allow_pickle=False)
 
     s = (d > 0).sum()
     num_pairs = hog.get_num_pairs()
