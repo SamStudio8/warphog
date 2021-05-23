@@ -227,13 +227,12 @@ def test_striped_reader():
     from warphog.loaders import TrivialFastaLoader
     from warphog.util import DEFAULT_ALPHABET
     from warphog.encoders import BytesConverter
-
+    from io import StringIO
 
     for seq_block_n in [1, 2, 5, 10, 50, 100, 1000]:
         seq_block = []
         expected_block_names = []
         expected_block_seqs = []
-        
         
         for i in range(seq_block_n):
             tn = "TEST_%d" % i
@@ -243,11 +242,8 @@ def test_striped_reader():
 
             expected_block_names.append(tn)
             expected_block_seqs.append(ts.encode())
-            
 
         seq_str = '\n'.join(seq_block)
-
-        from io import StringIO
         c = StringIO(seq_str)
 
         for n_procs in [1,2,3,4,5,10,seq_block_n-1,seq_block_n,seq_block_n+1]:
@@ -272,3 +268,54 @@ def test_striped_reader():
 
 def test_kernel_fp_hamming():
     from warphog.main import kernel_fp_hamming
+    from warphog.loaders import TrivialFastaLoader
+    from warphog.util import DEFAULT_ALPHABET
+    from warphog.encoders import BytesConverter
+    from io import StringIO
+
+    class FakeQueue(list):
+        def put(self, x):
+            self.append(x)
+
+    seq_block = []
+    seq_block_n = 100
+    test_seq_l = 10
+    query_block_n = 10
+    targets = {}
+
+    expected_block_names = []
+    expected_block_seqs = []
+    for i in range(seq_block_n):
+        tn = "TEST_%d" % i
+        ts = ''.join(random.choice(list(DEFAULT_ALPHABET.alphabet_set)) for i in range(test_seq_l))
+        seq_block.append(">%s" % tn)
+        seq_block.append(ts)
+        targets[tn] = ts.encode()
+        expected_block_names.append(tn)
+        expected_block_seqs.append(ts.encode())
+
+    queries = {}
+    for i in range(query_block_n):
+        tn = "Q_%d" % i
+        ts = ''.join(random.choice(list(DEFAULT_ALPHABET.alphabet_set)) for i in range(test_seq_l))
+        queries[tn] = ts.encode()
+
+    seq_str = '\n'.join(seq_block)
+    c = StringIO(seq_str)
+
+    queue = FakeQueue()
+    loader = TrivialFastaLoader(fasta=c, bc=BytesConverter(alphabet=DEFAULT_ALPHABET))
+
+    kernel_fp_hamming(queue, loader, queries, DEFAULT_ALPHABET.alphabet_ord_list, DEFAULT_ALPHABET.alphabet_matrix, 0, 0, 0)
+
+    n_tests = 0
+    for block in queue:
+        for res in block["result"]:
+            n_tests += 1
+            expected_distance = hamming(
+                queries[ res["qname"] ].decode(),
+                targets[ res["tname"] ].decode(),
+                DEFAULT_ALPHABET.equivalent_d,
+            )
+            assert res["distance"] == expected_distance
+    assert n_tests == (len(queries) * len(targets))
