@@ -4,10 +4,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## 0.5.0 - Unreleased
+## 0.5.0 - 2021-05-23
 ### Added
-* `--core prewarp-beta` is a hilariously fast version of Hamming on the CPU, after adding appropriate static types to Cython definition and re-writing the FASTA parser to read in a striped fashion
-    * Completely unintegrated into the existing codebase which previously loaded sequences up-front (for the GPU) so needs some thought
+* `--core prewarp --query` has been replaced with a hilariously fast version of Hamming on the CPU
+    * Hamming distance check is implemented in Cython, with appropriate static types
+    * FASTA loader is ignored in favour of reading and processing the target FASTA in a striped fashion
+    * This function is not integrated properly into the existing interfaces and needs some proper thought
 * `add_seq` on `FastaLoader` manages sequence names and lengths for blocks, and handles sequence conversion
 * `TrivialFastaLoader` added to loaders
 * `BytesEncoder` added to encoders
@@ -18,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 * `TestFastaLoader` removed from loaders
 * `limit` argument removed from `FastaLoader` interface, use `get_block(target_n=limit)` instead
+* `--encoder` is no longer a selectable option, as `bytes` is the only encoder that currently works and is automatically selected
+* `--loader` is no longer a selectable option, `--loader heng` is automatically used unless `--loader trivial` is required
 
 
 ## 0.3.2 - 2021-05-20

@@ -11,15 +11,11 @@ from warphog.encoders import ENCODERS
 from warphog.loaders import LOADERS
 from warphog.util import DEFAULT_ALPHABET
 
-CORES["prewarp-beta"] = None
-
 def cli():
     parser = argparse.ArgumentParser()
     parser.add_argument("--target", required=True)
     parser.add_argument("--query")
-    parser.add_argument("--loader", choices=LOADERS.keys(), required=True)
     parser.add_argument("--loader-limit", type=int, default=-1)
-    parser.add_argument("--encoder", choices=ENCODERS.keys(), required=True)
     parser.add_argument("--core", choices=CORES.keys(), required=True, default="warp")
     parser.add_argument("-k", type=int, default=-1)
     parser.add_argument("-t", type=int, default=-1)
@@ -31,12 +27,12 @@ def cli():
 def warphog(args):
     # Init concrete implementations of components
     alphabet = DEFAULT_ALPHABET
-    base_converter = ENCODERS[args.encoder](alphabet=alphabet)
+    base_converter = ENCODERS["bytes"](alphabet=alphabet) # bytes is the only encoder that works atm anyway
 
     query_block = []
     query_count = 0
     if args.query:
-        query_fa_loader = LOADERS[args.loader](fasta=args.query, bc=base_converter)
+        query_fa_loader = LOADERS["heng"](fasta=args.query, bc=base_converter)
         query_block = query_fa_loader.get_block()
         query_count = query_fa_loader.get_count()
 
@@ -44,22 +40,18 @@ def warphog(args):
         import pycuda.autoinit
         import pycuda.driver as cuda
 
-    if "prewarp" in args.core:
-        # Must use bytes to speak to the pyx kernel
-        if args.encoder != "bytes":
-            raise Exception("must use --encoder bytes with prewarp-beta")
+    if args.core == "prewarp":
+        if args.query:
+            sys.stderr.write("[NOTE] Using prewarp-beta mode to speed up --query on CPU\n")
 
-    if args.core == "prewarp-beta":
-        if not args.query:
-            raise Exception("prewarp-beta only supports modes with --query")
-        queries = {}
-        for i, name in enumerate(query_fa_loader.names):
-            queries[name] = query_block[i]
-        warphog_cpu(args, alphabet, queries)
-        return
+            queries = {}
+            for i, name in enumerate(query_fa_loader.names):
+                queries[name] = query_block[i]
+            warphog_cpu(args, alphabet, queries)
+            return
 
     # Load a block of sequences from FASTA
-    fa_loader = LOADERS[args.loader](fasta=args.target, bc=base_converter, offset=query_count)
+    fa_loader = LOADERS["heng"](fasta=args.target, bc=base_converter, offset=query_count)
     seq_block = fa_loader.get_block(target_n=args.loader_limit)
     num_seqs = fa_loader.get_count()
     print("huge block loaded: (%d, %d)" % (num_seqs, fa_loader.get_length()))
@@ -166,12 +158,14 @@ def warphog_cpu(args, alphabet, queries):
         }
         done = False
         start = datetime.datetime.now()
+        count = 0
         while names and not done:
             for i, name in enumerate(names):
+                count += 1
                 if tells[i] > block_end:
                     # Line starts after end of block, should be picked up by
                     # next block
-                    sys.stderr.write("[NOTE] Cowardly leaving block\n")
+                    sys.stderr.write("[NOTE] Leaving block after processing %s distances\n" % count)
                     done = True
                     break
 
@@ -291,4 +285,3 @@ def warphog_cpu(args, alphabet, queries):
     # Block
     for p in processes:
         p.join()
-

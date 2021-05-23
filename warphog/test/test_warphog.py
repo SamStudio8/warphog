@@ -9,6 +9,10 @@ import pytest
 from warphog import cores
 from warphog.util import DEFAULT_ALPHABET
 
+TEST_CORES = [
+    cores.GPUWarpCore,
+    cores.CPUPreWarpCore,
+]
 
 def hamming(seq_a, seq_b, equivalence_d):
     assert len(seq_a) == len(seq_b)
@@ -52,17 +56,18 @@ def test_hamming_test():
 def do_kernel(expected, seq_block, num_pairs, idx_map, idy_map, block_dim, grid_dim):
     tot_tests = 0
 
-    core = cores.GPUWarpCore(seq_block, DEFAULT_ALPHABET)
-    d = _do_kernel(core, seq_block, num_pairs, idx_map, idy_map, block_dim, grid_dim, pairs_per_thread=1)
-    n_tests = do_kernel_test(expected, d)
-    tot_tests += n_tests
-    assert n_tests == num_pairs
+    for test_core in TEST_CORES:
+        core = test_core(seq_block, DEFAULT_ALPHABET)
+        d = _do_kernel(core, seq_block, num_pairs, idx_map, idy_map, block_dim, grid_dim, pairs_per_thread=1)
+        n_tests = do_kernel_test(expected, d)
+        tot_tests += n_tests
+        assert n_tests == num_pairs
 
-    core = cores.CPUPreWarpCore(seq_block, DEFAULT_ALPHABET)
-    d = _do_kernel(core, seq_block, num_pairs, idx_map, idy_map, block_dim, grid_dim, pairs_per_thread=1)
-    n_tests = do_kernel_test(expected, d)
-    tot_tests += n_tests
-    assert n_tests == num_pairs
+    #core = cores.CPUPreWarpCore(seq_block, DEFAULT_ALPHABET)
+    #d = _do_kernel(core, seq_block, num_pairs, idx_map, idy_map, block_dim, grid_dim, pairs_per_thread=1)
+    #n_tests = do_kernel_test(expected, d)
+    #tot_tests += n_tests
+    #assert n_tests == num_pairs
 
     sys.stderr.write("%d pairs checked" % tot_tests)
     return tot_tests
@@ -96,16 +101,16 @@ def setup_test_M1_100A():
     seq_dim_y = 100
     pairs = seq_dim_x * seq_dim_y
 
-    a = ["A"] * 100
+    a = [b"A"] * 100
     seq_block = []
 
-    seq_block.append(''.join(a))
+    seq_block.append(b''.join(a))
     expected = [0]
 
     for i in range(seq_dim_y-1):
         curr_seq = a.copy()
-        curr_seq[i] = "T"
-        seq_block.append(''.join(curr_seq))
+        curr_seq[i] = b"T"
+        seq_block.append(b''.join(curr_seq))
         expected.append(1)
 
     # Map all sequences against first sequence
@@ -117,7 +122,7 @@ def setup_test_M2_triangle():
     seq_block = []
 
     for i in range(1000):
-        seq_block.append( ''.join(random.choice(list(DEFAULT_ALPHABET.alphabet_set)) for i in range(10)) )
+        seq_block.append( ''.join(random.choice(list(DEFAULT_ALPHABET.alphabet_set)) for i in range(10)).encode() )
     assert len(seq_block) > 0
 
     # Map all sequences against each other
@@ -126,8 +131,8 @@ def setup_test_M2_triangle():
     expected = []
     for i in range(len(idx_map)):
         distance = hamming(
-            seq_block[idx_map[i]],
-            seq_block[idy_map[i]],
+            seq_block[idx_map[i]].decode(),
+            seq_block[idy_map[i]].decode(),
             DEFAULT_ALPHABET.equivalent_d,
         )
         expected.append(distance)
@@ -159,7 +164,7 @@ def test_e2e_warphog_M2_block11():
         block_dim,
         grid_dim,
     )
-    assert num_tests == (pairs * len(cores.CORES))
+    assert num_tests == (pairs * len(TEST_CORES))
 
 
 def test_e2e_warphog_M2_block44():
@@ -180,7 +185,7 @@ def test_e2e_warphog_M2_block44():
         block_dim,
         grid_dim,
     )
-    assert num_tests == (pairs * len(cores.CORES))
+    assert num_tests == (pairs * len(TEST_CORES))
 
 
 def test_e2e_warphog_M1_block11():
@@ -200,7 +205,7 @@ def test_e2e_warphog_M1_block11():
         block_dim,
         grid_dim
     )
-    assert num_tests == (pairs * len(cores.CORES))
+    assert num_tests == (pairs * len(TEST_CORES))
 
 
 
@@ -221,4 +226,4 @@ def test_e2e_warphog_M1_block44():
         block_dim,
         grid_dim
     )
-    assert num_tests == (pairs * len(cores.CORES))
+    assert num_tests == (pairs * len(TEST_CORES))
