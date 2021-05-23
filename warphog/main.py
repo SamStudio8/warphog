@@ -8,7 +8,7 @@ import numpy as np
 from warphog import hogs
 from warphog.cores import CORES
 from warphog.encoders import ENCODERS
-from warphog.loaders import LOADERS
+from warphog.loaders import LOADERS, StripedFastaLoaderGroup
 from warphog.util import DEFAULT_ALPHABET
 
 CORES["prewarp-beta"] = None
@@ -59,9 +59,13 @@ def warphog(args):
         return
 
     # Load a block of sequences from FASTA
-    fa_loader = LOADERS[args.loader](fasta=args.target, bc=base_converter, offset=query_count)
-    seq_block = fa_loader.get_block(target_n=args.loader_limit)
-    num_seqs = fa_loader.get_count()
+    #fa_loader = LOADERS[args.loader](fasta=args.target, bc=base_converter, offset=query_count)
+    #seq_block = fa_loader.get_block(target_n=args.loader_limit)
+    #num_seqs = fa_loader.get_count()
+
+    fa_loader = StripedFastaLoaderGroup(fasta=args.target, bc=base_converter)
+    seq_names, seq_block = fa_loader.read_block(24, args.loader, offset=query_count)
+    num_seqs = len(seq_names)
     print("huge block loaded: (%d, %d)" % (num_seqs, fa_loader.get_length()))
 
     if args.query:

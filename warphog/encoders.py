@@ -4,6 +4,7 @@ class BaseConverter(ABC):
 
     def __init__(self, alphabet):
         self.alphabet = alphabet
+        self.join_ch = ''
 
     @abstractmethod
     def convert_base(self, b):
@@ -41,6 +42,10 @@ class OrdBaseConverter(BaseConverter):
         return a
 
 class BytesConverter(BaseConverter):
+    def __init__(self, alphabet):
+        super().__init__(alphabet)
+        self.join_ch = b''
+
     def convert_base(self, b):
         raise NotImplementedError()
     def convert_seq(self, seq):
