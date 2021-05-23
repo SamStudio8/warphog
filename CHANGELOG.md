@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## 0.5.0 - 2021-05-23
+## 0.5.1 - 2021-05-23
 ### Added
 * `--core prewarp --query` has been replaced with a hilariously fast version of Hamming on the CPU
     * Hamming distance check is implemented in Cython, with appropriate static types
@@ -13,9 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `add_seq` on `FastaLoader` manages sequence names and lengths for blocks, and handles sequence conversion
 * `TrivialFastaLoader` added to loaders
 * `BytesEncoder` added to encoders
+* Reasonably well covering test for strided FASTA reading
 
 ### Changed
 * `get_length` no longer requires implementing in loader interfaces
+* Loaders accept a file name or file handler
 
 ### Removed
 * `TestFastaLoader` removed from loaders

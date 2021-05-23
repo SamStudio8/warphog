@@ -1,10 +1,13 @@
 from abc import ABC, abstractmethod
+from io import IOBase
+import sys
 
 class FastaLoader(ABC):
 
-    def __init__(self, fasta=None, bc=None, offset=0, seek_offset=0, **kwargs):
+    def __init__(self, fasta=None, bc=None, offset=0, seek_offset=0, seek_end=None, **kwargs):
         self.count = 0
         self.fasta = fasta
+        self.handle = open(fasta) if not isinstance(fasta, IOBase) else fasta
         self.base_converter = bc
 
         self.idx_offset = offset
@@ -13,6 +16,7 @@ class FastaLoader(ABC):
         self.names = []
 
         self.seek_offset = seek_offset #TODO Move to readers that can use it...
+        self.seek_end = seek_end
 
         self.seq_len = None
 
@@ -46,7 +50,6 @@ class TrivialFastaLoader(FastaLoader):
     # read speed limitations -- so each process gets their own file handle to --target.
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.handle = open(self.fasta)
         self.handle.seek(self.seek_offset)
         self.first = True
         self.tell = self.handle.tell()
@@ -60,7 +63,12 @@ class TrivialFastaLoader(FastaLoader):
         tells = []
         while line:
             if line[0] == '>':
-                tells.append(self.handle.tell() - len(line))
+                curr_tell = self.handle.tell() - len(line)
+                if self.seek_end and curr_tell >= self.seek_end:
+                    sys.stderr.write("[NOTE] Loader cowardly existing block after reaching seek_end\n")
+                    return tells, names, seqs
+
+                tells.append(curr_tell)
                 name = line[1:-1]
 
                 if self.first:
@@ -123,7 +131,7 @@ class HengFastaLoader(FastaLoader):
         #msa_char_block = np.zeros( (1, self.get_length()) , dtype=np.int32)
         seq_block = []
         curr_block_size = 0
-        for name_i, seq_i, qual_i in self.readfq(open(self.fasta)):
+        for name_i, seq_i, qual_i in self.readfq(self.handle):
             if self.count % 10000 == 0:
                 print(self.count)
             #np.append(msa_char_block, (base_converter.convert_base(base) for base in seq_i))

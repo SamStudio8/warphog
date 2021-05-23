@@ -63,12 +63,6 @@ def do_kernel(expected, seq_block, num_pairs, idx_map, idy_map, block_dim, grid_
         tot_tests += n_tests
         assert n_tests == num_pairs
 
-    #core = cores.CPUPreWarpCore(seq_block, DEFAULT_ALPHABET)
-    #d = _do_kernel(core, seq_block, num_pairs, idx_map, idy_map, block_dim, grid_dim, pairs_per_thread=1)
-    #n_tests = do_kernel_test(expected, d)
-    #tot_tests += n_tests
-    #assert n_tests == num_pairs
-
     sys.stderr.write("%d pairs checked" % tot_tests)
     return tot_tests
 
@@ -227,3 +221,54 @@ def test_e2e_warphog_M1_block44():
         grid_dim
     )
     assert num_tests == (pairs * len(TEST_CORES))
+
+
+def test_striped_reader():
+    from warphog.loaders import TrivialFastaLoader
+    from warphog.util import DEFAULT_ALPHABET
+    from warphog.encoders import BytesConverter
+
+
+    for seq_block_n in [1, 2, 5, 10, 50, 100, 1000]:
+        seq_block = []
+        expected_block_names = []
+        expected_block_seqs = []
+        
+        
+        for i in range(seq_block_n):
+            tn = "TEST_%d" % i
+            ts = ''.join(random.choice(list(DEFAULT_ALPHABET.alphabet_set)) for i in range(10))
+            seq_block.append(">%s" % tn)
+            seq_block.append(ts)
+
+            expected_block_names.append(tn)
+            expected_block_seqs.append(ts.encode())
+            
+
+        seq_str = '\n'.join(seq_block)
+
+        from io import StringIO
+        c = StringIO(seq_str)
+
+        for n_procs in [1,2,3,4,5,10,seq_block_n-1,seq_block_n,seq_block_n+1]:
+            if n_procs == 0:
+                continue
+            target_size = len(seq_str)
+            block_size = ceil( target_size / n_procs )
+            block_start = 0
+
+            actual_block_names = []
+            actual_block_seqs = []
+            for proc_no in range(n_procs):
+                loader = TrivialFastaLoader(fasta=c, bc=BytesConverter(alphabet=DEFAULT_ALPHABET), seek_offset=block_start, seek_end=block_start+block_size)
+                tells, names, seqs = loader.get_block(target_n=-1)
+                actual_block_names.extend(names)
+                actual_block_seqs.extend(seqs)
+                block_start += block_size
+
+            assert len(actual_block_names) == seq_block_n
+            assert set(actual_block_names) == set(expected_block_names)
+            assert set(actual_block_seqs) == set(expected_block_seqs)
+
+def test_kernel_fp_hamming():
+    from warphog.main import kernel_fp_hamming

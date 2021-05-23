@@ -133,9 +133,93 @@ def warphog(args):
         delta = end-start
         print("%.2f GB written in %s (%.2f MB/s)" % (mb_written / 1000, str(delta), mb_written / delta.total_seconds()))
 
+
+def kernel_fp_hamming(out_q, loader, queries, ord_l, alphabet_matrix, block_start, block_end, block):
+    from warphog.kernels.hamming import kernel_wrapb  # pylint: disable=no-name-in-module,import-error
+
+    # Passing large sequences through the multiprocessing queue seemed slow.
+    # Additionally, we are limited by the speed of ceph, but multiple file
+    # handlers can communuicate with different mds independently, circumventing
+    # read speed limitations -- so each process gets their own file handle to --target.
+    tells, names, seqs = loader.get_block(target_n=1)
+    result_block = {
+        "working_time": 0,
+        "result": [],
+    }
+    done = False
+    start = datetime.datetime.now()
+    count = 0
+    while names and not done:
+        for i, name in enumerate(names):
+            count += 1
+            for q_name, q_seq in queries.items():
+                #distance = 0
+                #seq_a_idx = np.take(ord_l, np.array([q_seq]).view(np.uint8))
+                #seq_b_idx = np.take(ord_l, np.array([seq.encode()]).view(np.uint8))
+                #distance = np.sum(alphabet_matrix[ seq_a_idx, seq_b_idx ])
+                d = kernel_wrapb(q_seq, seqs[i], len(q_seq), ord_l, alphabet_matrix)
+                result_block["result"].append({
+                    "block": block,
+                    "qname": q_name,
+                    "tname": name,
+                    "distance": d,
+                })
+        tells, names, seqs = loader.get_block(target_n=1)
+    end = datetime.datetime.now()
+
+    # Adding to Multiprocessing.Queue is awfully slow for many small objects,
+    # so cache up and blow the entire result_block at the thing instead
+    #TODO Probably a compromise to be made here between pushing as much as
+    # possible but not maintaining huge lists to append on
+    result_block["working_time"] = end-start
+    result_block["loader_len"] = loader.get_length()
+    out_q.put(result_block)
+
+def kernel_fp_output(out_fp, out_q, n_workers):
+    s = 0
+    num_pairs = 0
+    b_written = 0
+    writing_time = datetime.timedelta(0)
+    working_time = datetime.timedelta(0)
+    l = None
+
+    wall_start = datetime.datetime.now()
+
+    working_workers = n_workers
+    while working_workers > 0:
+        work = out_q.get()
+        working_workers -= 1
+
+        if not l:
+            l = work["loader_len"]
+        start = datetime.datetime.now()
+        for res in work["result"]:
+            num_pairs += 1
+            if res["distance"] > 0:
+                s += 1
+            b_written += out_fp.write('\t'.join([
+                res["qname"],
+                res["tname"],
+                str(res["distance"]),
+            ]) + '\n')
+        end = datetime.datetime.now()
+        sys.stderr.write("[NOTE] %d workers remaining\n" % working_workers)
+        writing_time += (end-start)
+
+    wall_end = datetime.datetime.now()
+    wall_delta = wall_end - wall_start
+
+    print("%d non-zero edit distances found (%.2f%%) in %s" % (s, s/num_pairs*100.0, str(wall_delta)))
+    print("%.2fM sequence comparions / s" % ( (num_pairs / wall_delta.total_seconds())/ 1e6) )
+    total_bases = l * num_pairs
+    print("%.2fB base comparions / s" % ( (total_bases / wall_delta.total_seconds()) / 1e9 ))
+
+    mb_written = b_written / 1e6
+    print("%.2f GB written in %s (%.2f MB/s)" % (mb_written / 1000, str(writing_time), mb_written / writing_time.total_seconds()))
+
 def warphog_cpu(args, alphabet, queries):
     from multiprocessing import Process, Queue, Array, cpu_count
-    from warphog.kernels.hamming import kernel_wrapb  # pylint: disable=no-name-in-module,import-error
+    
     from math import ceil
     sys.stderr.write(f"[NOTE] {len(queries)} queries loaded\n")
 
@@ -145,106 +229,7 @@ def warphog_cpu(args, alphabet, queries):
     sys.stderr.write(f"[NOTE] {n_procs} processes\n")
 
     processes = []
-
-    def kernel_fp_hamming(out_q, loader, queries, ord_l, alphabet_matrix, block_start, block_end, block):
-        # Passing large sequences through the multiprocessing queue seemed slow.
-        # Additionally, we are limited by the speed of ceph, but multiple file
-        # handlers can communuicate with different mds independently, circumventing
-        # read speed limitations -- so each process gets their own file handle to --target.
-        tells, names, seqs = loader.get_block(target_n=1)
-        result_block = {
-            "working_time": 0,
-            "result": [],
-        }
-        done = False
-        start = datetime.datetime.now()
-        count = 0
-        while names and not done:
-            for i, name in enumerate(names):
-                count += 1
-                if tells[i] > block_end:
-                    # Line starts after end of block, should be picked up by
-                    # next block
-                    sys.stderr.write("[NOTE] Leaving block after processing %s distances\n" % count)
-                    done = True
-                    break
-
-                for q_name, q_seq in queries.items():
-                    #distance = 0
-                    #seq_a_idx = np.take(ord_l, np.array([q_seq]).view(np.uint8))
-                    #seq_b_idx = np.take(ord_l, np.array([seq.encode()]).view(np.uint8))
-                    #distance = np.sum(alphabet_matrix[ seq_a_idx, seq_b_idx ])
-                    d = kernel_wrapb(q_seq, seqs[i], len(q_seq), ord_l, alphabet_matrix)
-                    result_block["result"].append({
-                        "block": block,
-                        "qname": q_name,
-                        "tname": name,
-                        "distance": d,
-                    })
-            tells, names, seqs = loader.get_block(target_n=1)
-        end = datetime.datetime.now()
-
-        # Adding to Multiprocessing.Queue is awfully slow for many small objects,
-        # so cache up and blow the entire result_block at the thing instead
-        #TODO Probably a compromise to be made here between pushing as much as
-        # possible but not maintaining huge lists to append on
-        result_block["working_time"] = end-start
-        result_block["loader_len"] = loader.get_length()
-        out_q.put(result_block)
-
-    def kernel_d_output(d, out_q, n_workers):
-        pass
-
-    def kernel_fp_output(out_fn, out_q, n_workers):
-        s = 0
-        num_pairs = 0
-        b_written = 0
-        writing_time = datetime.timedelta(0)
-        working_time = datetime.timedelta(0)
-        l = None
-
-        if out_fn == '-':
-            out_fn = sys.stdout
-        else:
-            out_fn = open(out_fn, 'w')
-
-        wall_start = datetime.datetime.now()
-
-        working_workers = n_workers
-        while working_workers > 0:
-            work = out_q.get()
-            working_workers -= 1
-
-            if not l:
-                l = work["loader_len"]
-            start = datetime.datetime.now()
-            for res in work["result"]:
-                num_pairs += 1
-                if res["distance"] > 0:
-                    s += 1
-                b_written += out_fn.write('\t'.join([
-                    res["qname"],
-                    res["tname"],
-                    str(res["distance"]),
-                ]) + '\n')
-            end = datetime.datetime.now()
-            sys.stderr.write("[NOTE] %d workers remaining\n" % working_workers)
-            writing_time += (end-start)
-
-        if out_fn != '-':
-            out_fn.close()
-
-        wall_end = datetime.datetime.now()
-        wall_delta = wall_end - wall_start
-
-        print("%d non-zero edit distances found (%.2f%%) in %s" % (s, s/num_pairs*100.0, str(wall_delta)))
-        print("%.2fM sequence comparions / s" % ( (num_pairs / wall_delta.total_seconds())/ 1e6) )
-        total_bases = l * num_pairs
-        print("%.2fB base comparions / s" % ( (total_bases / wall_delta.total_seconds()) / 1e9 ))
-
-        mb_written = b_written / 1e6
-        print("%.2f GB written in %s (%.2f MB/s)" % (mb_written / 1000, str(writing_time), mb_written / writing_time.total_seconds()))
-
+    
     out_q = Queue()
 
     ord_l = np.asarray(alphabet.alphabet_ord_list, dtype=np.int8)
@@ -256,8 +241,13 @@ def warphog_cpu(args, alphabet, queries):
     block_start = 0
 
     # Add an extra process for writing out results
+    if args.o == '-':
+        out_fp = sys.stdout
+    else:
+        out_fp = open(args.o, 'w')
+
     p = Process(target=kernel_fp_output, args=(
-        args.o,
+        out_fp,
         out_q,
         n_procs,
     ))
@@ -266,7 +256,7 @@ def warphog_cpu(args, alphabet, queries):
     for proc_no in range(n_procs):
         p = Process(target=kernel_fp_hamming, args=(
             out_q,
-            LOADERS["trivial"](fasta=args.target, bc=ENCODERS["bytes"](alphabet=alphabet), seek_offset=block_start), #TODO Init inside kernel?
+            LOADERS["trivial"](fasta=args.target, bc=ENCODERS["bytes"](alphabet=alphabet), seek_offset=block_start, seek_end=block_start+block_size), #TODO Init inside kernel?
             queries,
             ord_l,
             alphabet_matrix,
@@ -285,3 +275,7 @@ def warphog_cpu(args, alphabet, queries):
     # Block
     for p in processes:
         p.join()
+
+    if args.o != '-':
+        out_fp.close()
+
