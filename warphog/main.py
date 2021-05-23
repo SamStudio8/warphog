@@ -40,6 +40,11 @@ def warphog(args):
         import pycuda.autoinit
         import pycuda.driver as cuda
 
+    if args.t > 0 and args.core == "warp":
+        sys.stderr.write("[NOTE] Threads option -t ignored when using GPU\n")
+    if args.t > 0 and args.core == "prewarp" and not args.query:
+        sys.stderr.write("[NOTE] Threads option -t ignored when using CPU without --query\n")
+
     if args.core == "prewarp":
         if args.query:
             sys.stderr.write("[NOTE] Using prewarp-beta mode to speed up --query on CPU\n")
@@ -175,7 +180,7 @@ def kernel_fp_hamming(out_q, loader, queries, ord_l, alphabet_matrix, block_star
     result_block["loader_len"] = loader.get_length()
     out_q.put(result_block)
 
-def kernel_fp_output(out_fp, out_q, n_workers):
+def kernel_fp_output(out_fp, out_q, n_workers, k):
     s = 0
     num_pairs = 0
     b_written = 0
@@ -197,6 +202,11 @@ def kernel_fp_output(out_fp, out_q, n_workers):
             num_pairs += 1
             if res["distance"] > 0:
                 s += 1
+
+            if k > -1:
+                if res["distance"] > k:
+                    continue
+                
             b_written += out_fp.write('\t'.join([
                 res["qname"],
                 res["tname"],
@@ -250,6 +260,7 @@ def warphog_cpu(args, alphabet, queries):
         out_fp,
         out_q,
         n_procs,
+        args.k,
     ))
     processes.append(p)
 

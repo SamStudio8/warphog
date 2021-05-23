@@ -65,7 +65,7 @@ class TrivialFastaLoader(FastaLoader):
             if line[0] == '>':
                 curr_tell = self.handle.tell() - len(line)
                 if self.seek_end and curr_tell >= self.seek_end:
-                    sys.stderr.write("[NOTE] Loader cowardly existing block after reaching seek_end\n")
+                    sys.stderr.write("[NOTE] Loader cowardly exiting block after %d sequences reaching seek_end\n" % curr_block_size)
                     return tells, names, seqs
 
                 tells.append(curr_tell)
